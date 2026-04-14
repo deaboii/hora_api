@@ -10,4 +10,4 @@ def home():
 
 @app.post("/kundli")
 def generate_kundli(name: str,dob: str,lat: float, lon: float):
-    return {"kundli": name + dob + lat +lon}
+    return {"kundli": name + dob }
