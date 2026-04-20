@@ -1,4 +1,3 @@
-import swe as swe
 import swisseph as swe
 import os
 
