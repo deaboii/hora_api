@@ -1,4 +1,4 @@
-from base import planets, signs, nakshatras
+from utils.base import planets, signs, nakshatras
 import swisseph as swe
 import os
 
