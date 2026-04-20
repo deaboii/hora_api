@@ -1,5 +1,5 @@
 fastapi
 uvicorn
 pydantic
-swisseph
+pyswisseph
 pytz
