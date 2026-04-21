@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from utils.validators import validate_parameters, convert_ist_to_utc, get_planet_data
+from utils.core_logic import validate_parameters, convert_ist_to_utc, get_planet_data, build_house_map
 import swisseph as swe
 import os
 
@@ -31,4 +31,8 @@ def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: 
         # Julian Day in UT
         jd_ut = swe.julday(year, month, day, utc_decimal)
 
-        return get_planet_data(jd_ut, year, month, day, ist_hr, ist_min, lat, lon)
+        planet_data = get_planet_data(jd_ut, year, month, day, ist_hr, ist_min, lat, lon)
+        #return planet_data
+
+        house_mapper = build_house_map(planet_data)
+        return house_mapper

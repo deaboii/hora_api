@@ -5,6 +5,7 @@ import os
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 swe.set_ephe_path(BASE_DIR)
 
+
 def check_positive_number(val):
     # Check if it's an instance of int or float
     if isinstance(val, (int, float)) and val > 0:
@@ -40,7 +41,9 @@ def convert_ist_to_utc(ist_hour, ist_minute):
     utc_minute = total_utc_minutes % 60
     utc_decimal = utc_hour + utc_minute / 60
     return utc_decimal
-def get_planet_data(jd_ut,year,month,day,ist_hour, ist_minute,latitude, longitude ):
+
+
+def get_planet_data(jd_ut, year, month, day, ist_hour, ist_minute, latitude, longitude):
     planet_data = []
 
     for name, pl in planets.items():
@@ -79,6 +82,8 @@ def get_planet_data(jd_ut,year,month,day,ist_hour, ist_minute,latitude, longitud
     })
 
     return planet_data
+
+
 def interpret_position(degree):
     # Zodiac sign
     sign_index = int(degree // 30)
@@ -92,3 +97,34 @@ def interpret_position(degree):
     pada = int(degree_in_nakshatra // 3.3333333) + 1
 
     return sign, nak, pada, degree_in_rashi, degree_in_nakshatra
+
+
+def get_house_number(lagna, planet_sign):
+    lagna_index = signs.index(lagna)
+    planet_index = signs.index(planet_sign)
+
+    return (planet_index - lagna_index) % 12 + 1
+
+
+def build_house_map(chart_data):
+    house_map = {i: [] for i in range(1, 13)}
+
+    # get lagna
+    lagna = None
+    for p in chart_data:
+        if p["name"].lower() == "ascendant":
+            lagna = p["zodiac"].lower()
+            break
+
+    # assign planets to houses
+    for p in chart_data:
+        sign = p["zodiac"].lower()
+        house = get_house_number(lagna, sign)
+
+        house_map[house].append({
+            "name": p["name"],
+            "sign": sign,
+            "degree": round(p["degree_in_rashi"], 3)
+        })
+
+    return house_map
