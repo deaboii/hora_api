@@ -64,3 +64,5 @@ nakshatras = [
     "Uttara Bhadrapada",
     "Revati"
 ]
+
+final_structure = {}

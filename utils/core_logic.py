@@ -1,4 +1,7 @@
-from utils.base import planets, signs, nakshatras
+import json
+
+from utils import config
+from utils.config import planets, signs, nakshatras
 import swisseph as swe
 import os
 
@@ -112,13 +115,13 @@ def build_house_map(chart_data):
     # get lagna
     lagna = None
     for p in chart_data:
-        if p["name"].lower() == "ascendant":
-            lagna = p["zodiac"].lower()
+        if p["name"] == "Ascendant":
+            lagna = p["zodiac"]
             break
 
     # assign planets to houses
     for p in chart_data:
-        sign = p["zodiac"].lower()
+        sign = p["zodiac"]
         house = get_house_number(lagna, sign)
 
         house_map[house].append({
@@ -128,3 +131,13 @@ def build_house_map(chart_data):
         })
 
     return house_map
+
+
+def update_json(node, data):
+    if node == "details":
+        config.final_structure = {
+            "details": data
+        }
+
+    # Convert to JSON string
+    return json.dumps(config.final_structure , indent=4)

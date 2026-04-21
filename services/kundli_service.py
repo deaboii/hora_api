@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from utils.core_logic import validate_parameters, convert_ist_to_utc, get_planet_data, build_house_map
+from utils.core_logic import validate_parameters, convert_ist_to_utc, get_planet_data, build_house_map, update_json
 import swisseph as swe
 import os
+import json
 
 # This works both locally AND on Render
 # Go one level UP from /services to reach project root
@@ -31,8 +32,17 @@ def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: 
         # Julian Day in UT
         jd_ut = swe.julday(year, month, day, utc_decimal)
 
-        planet_data = get_planet_data(jd_ut, year, month, day, ist_hr, ist_min, lat, lon)
-        #return planet_data
+        #update_json_with_details
 
-        house_mapper = build_house_map(planet_data)
-        return house_mapper
+        details = {
+            "name": name,
+            "date_of_birth": date_str,
+            "time_of_birth": birth_time,
+            "lat": lat,
+            "lon": lon
+        }
+        return update_json("details",details)
+
+        #planet_data = get_planet_data(jd_ut, year, month, day, ist_hr, ist_min, lat, lon)
+        #house_mapper = build_house_map(planet_data)
+        #return house_mapper
