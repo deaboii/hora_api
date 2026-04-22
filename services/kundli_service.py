@@ -32,8 +32,6 @@ def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: 
         # Julian Day in UT
         jd_ut = swe.julday(year, month, day, utc_decimal)
 
-        #update_json_with_details
-
         details = {
             "name": name,
             "date_of_birth": date_str,
@@ -41,8 +39,15 @@ def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: 
             "lat": lat,
             "lon": lon
         }
-        return update_json("details",details)
+        # update_json_with_details
+        update_json("details", details)
 
-        #planet_data = get_planet_data(jd_ut, year, month, day, ist_hr, ist_min, lat, lon)
-        #house_mapper = build_house_map(planet_data)
-        #return house_mapper
+        planet_data = get_planet_data(jd_ut, year, month, day, ist_hr, ist_min, lat, lon)
+
+        # update_json_with_planet_data
+        update_json("planets_data", planet_data)
+
+        house_mapper = build_house_map(planet_data)
+
+        # update_json_with_D1_data
+        return update_json("house_mapper", {"D1": house_mapper})

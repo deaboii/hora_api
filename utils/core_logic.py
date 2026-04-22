@@ -138,6 +138,11 @@ def update_json(node, data):
         config.final_structure = {
             "details": data
         }
+    if node == "planets_data":
+        config.final_structure["planets_data"] = data
+
+    if node == "house_mapper":
+        config.final_structure["house_mapper"] = data
 
     # Convert to JSON string
     return json.dumps(config.final_structure , indent=4)
