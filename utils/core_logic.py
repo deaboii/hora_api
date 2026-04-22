@@ -1,7 +1,8 @@
 import json
+from datetime import datetime, timedelta
 
 from utils import config
-from utils.config import planets, signs, nakshatras
+from utils.config import planets, signs, nakshatras, DASHA_SEQUENCE, NAKSHATRA_LORDS
 import swisseph as swe
 import os
 
@@ -133,6 +134,7 @@ def build_house_map(chart_data):
     return house_map
 
 
+# ----------- update final json ---------------
 def update_json(node, data):
     if node == "details":
         config.final_structure = {
@@ -144,6 +146,8 @@ def update_json(node, data):
     if node == "house_mapper":
         config.final_structure["house_mapper"] = data
 
+    if node == "dasha":
+        config.final_structure["dasha"] = data
     # Convert to JSON string
     return json.dumps(config.final_structure)
 
@@ -240,3 +244,154 @@ def get_house_mapper(planets_data, chart_type):
         house_map[str(house_number)].append(p)
 
     return {chart_type: house_map}
+
+
+# -------------------------Dasha Analysis-------------------
+
+
+NAKSHATRA_SPAN = 13.3333333  # degrees per nakshatra
+PADA_SPAN = 3.3333333  # degrees per pada
+
+
+def get_dasha_balance_at_birth(moon_longitude):
+    """
+    Calculate how much of the birth Dasha was remaining at birth.
+    Based on Moon's exact position within its nakshatra.
+    """
+    nak_index = int(moon_longitude // NAKSHATRA_SPAN)
+    ruling_planet = NAKSHATRA_LORDS[nak_index]
+
+    # How far Moon has travelled inside this nakshatra
+    degree_in_nak = moon_longitude % NAKSHATRA_SPAN
+
+    # Fraction REMAINING in this nakshatra
+    fraction_remaining = (NAKSHATRA_SPAN - degree_in_nak) / NAKSHATRA_SPAN
+
+    # Find total years for this planet's dasha
+    total_years = dict(DASHA_SEQUENCE)[ruling_planet]
+
+    # Years remaining at birth
+    years_remaining = fraction_remaining * total_years
+
+    return ruling_planet, years_remaining
+
+
+def calculate_all_dashas(dob_str, birth_time_str, moon_longitude):
+    """
+    Calculate all Mahadashas, Antardashas, Pratyantar Dashas.
+
+    dob_str: "09-01-1997"
+    birth_time_str: "23.49"
+    moon_longitude: from planets_data (Moon's longitude)
+    """
+
+    # Parse birth datetime
+    parts = birth_time_str.split(".")
+    hour = int(parts[0])
+    minute = int(parts[1])
+    birth_dt = datetime.strptime(dob_str, "%d-%m-%Y").replace(
+        hour=hour, minute=minute
+    )
+
+    # Get starting dasha and balance
+    start_planet, years_remaining = get_dasha_balance_at_birth(moon_longitude)
+
+    # Build full dasha sequence starting from birth planet
+    sequence_names = [p for p, _ in DASHA_SEQUENCE]
+    start_index = sequence_names.index(start_planet)
+
+    # Reorder sequence from birth planet
+    ordered_sequence = (
+            DASHA_SEQUENCE[start_index:] + DASHA_SEQUENCE[:start_index]
+    )
+
+    all_dashas = []
+    current_date = birth_dt
+
+    for i, (maha_planet, maha_years) in enumerate(ordered_sequence):
+
+        # First dasha uses remaining years, rest use full years
+        actual_maha_years = years_remaining if i == 0 else maha_years
+        maha_end = current_date + timedelta(days=actual_maha_years * 365.25)
+
+        # --- Antardasha calculation ---
+        antardashas = []
+        antar_start = current_date
+        antar_index = i % len(DASHA_SEQUENCE)
+
+        for j in range(9):
+            antar_planet, antar_full_years = DASHA_SEQUENCE[
+                (antar_index + j) % len(DASHA_SEQUENCE)
+                ]
+
+            # Antardasha duration = (maha_years * antar_years) / 120
+            antar_years = (actual_maha_years * antar_full_years) / 120
+            antar_end = antar_start + timedelta(days=antar_years * 365.25)
+
+            # --- Pratyantar Dasha ---
+            pratyantars = []
+            prat_start = antar_start
+
+            for k in range(9):
+                prat_planet, prat_full_years = DASHA_SEQUENCE[
+                    (antar_index + j + k) % len(DASHA_SEQUENCE)
+                    ]
+                prat_years = (antar_years * prat_full_years) / 120
+                prat_end = prat_start + timedelta(days=prat_years * 365.25)
+
+                pratyantars.append({
+                    "planet": prat_planet,
+                    "start": prat_start.strftime("%d-%m-%Y"),
+                    "end": prat_end.strftime("%d-%m-%Y"),
+                })
+                prat_start = prat_end
+
+            antardashas.append({
+                "planet": antar_planet,
+                "start": antar_start.strftime("%d-%m-%Y"),
+                "end": antar_end.strftime("%d-%m-%Y"),
+                "pratyantar": pratyantars
+            })
+            antar_start = antar_end
+
+        all_dashas.append({
+            "planet": maha_planet,
+            "start": current_date.strftime("%d-%m-%Y"),
+            "end": maha_end.strftime("%d-%m-%Y"),
+            "antardasha": antardashas
+        })
+        current_date = maha_end
+
+    return all_dashas
+
+
+def get_current_dasha(all_dashas):
+    """Find which Maha, Antar, Pratyantar dasha is active today."""
+    today = datetime.today()
+
+    for maha in all_dashas:
+        maha_start = datetime.strptime(maha["start"], "%d-%m-%Y")
+        maha_end = datetime.strptime(maha["end"], "%d-%m-%Y")
+
+        if maha_start <= today <= maha_end:
+            current_maha = maha["planet"]
+
+            for antar in maha["antardasha"]:
+                antar_start = datetime.strptime(antar["start"], "%d-%m-%Y")
+                antar_end = datetime.strptime(antar["end"], "%d-%m-%Y")
+
+                if antar_start <= today <= antar_end:
+                    current_antar = antar["planet"]
+
+                    for prat in antar["pratyantar"]:
+                        prat_start = datetime.strptime(prat["start"], "%d-%m-%Y")
+                        prat_end = datetime.strptime(prat["end"], "%d-%m-%Y")
+
+                        if prat_start <= today <= prat_end:
+                            return {
+                                "mahadasha": current_maha,
+                                "antardasha": current_antar,
+                                "pratyantar": prat["planet"],
+                                "pratyantar_end": prat["end"]
+                            }
+    return {}

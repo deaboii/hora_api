@@ -64,5 +64,49 @@ nakshatras = [
     "Uttara Bhadrapada",
     "Revati"
 ]
+# Vimshottari Dasha sequence - planet: total years
+DASHA_SEQUENCE = [
+    ("Ketu",    7),
+    ("Venus",   20),
+    ("Sun",     6),
+    ("Moon",    10),
+    ("Mars",    7),
+    ("Rahu",    18),
+    ("Jupiter", 16),
+    ("Saturn",  19),
+    ("Mercury", 17),
+]
+
+# Which planet rules which Nakshatra (27 nakshatras, repeating sequence)
+NAKSHATRA_LORDS = [
+    "Ketu",    # Ashwini
+    "Venus",   # Bharani
+    "Sun",     # Krittika
+    "Moon",    # Rohini
+    "Mars",    # Mrigashira
+    "Rahu",    # Ardra
+    "Jupiter", # Punarvasu
+    "Saturn",  # Pushya
+    "Mercury", # Ashlesha
+    "Ketu",    # Magha
+    "Venus",   # Purva Phalguni
+    "Sun",     # Uttara Phalguni
+    "Moon",    # Hasta
+    "Mars",    # Chitra
+    "Rahu",    # Swati
+    "Jupiter", # Vishakha
+    "Saturn",  # Anuradha
+    "Mercury", # Jyeshtha
+    "Ketu",    # Mula
+    "Venus",   # Purva Ashadha
+    "Sun",     # Uttara Ashadha
+    "Moon",    # Shravana
+    "Mars",    # Dhanishta
+    "Rahu",    # Shatabhisha
+    "Jupiter", # Purva Bhadrapada
+    "Saturn",  # Uttara Bhadrapada
+    "Mercury", # Revati
+]
+
 
 final_structure = {}
