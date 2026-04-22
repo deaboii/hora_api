@@ -146,3 +146,97 @@ def update_json(node, data):
 
     # Convert to JSON string
     return json.dumps(config.final_structure)
+
+
+SIGN_INDEX = {sign: i for i, sign in enumerate(signs)}
+
+# Starting sign index for each D9 element group
+D9_START = {
+    "fire": 0,  # Aries
+    "earth": 9,  # Capricorn
+    "air": 6,  # Libra
+    "water": 3,  # Cancer
+}
+
+SIGN_ELEMENT = {
+    "Aries": "fire", "Leo": "fire", "Sagittarius": "fire",
+    "Taurus": "earth", "Virgo": "earth", "Capricorn": "earth",
+    "Gemini": "air", "Libra": "air", "Aquarius": "air",
+    "Cancer": "water", "Scorpio": "water", "Pisces": "water",
+}
+
+CHART_DIVISIONS = {
+    "D1": 1,
+    "D9": 9,
+    "D10": 10,
+    "D12": 12,
+    "D7": 7,
+    "D2": 2,
+    "D3": 3,
+    "D4": 4,
+}
+
+
+def get_divisional_sign(zodiac, degree_in_rashi, chart_type):
+    """Get the divisional chart sign for a planet."""
+    divisions = CHART_DIVISIONS[chart_type]
+    part_size = 30.0 / divisions
+    slot = int(degree_in_rashi / part_size)  # 0-indexed slot
+
+    if chart_type == "D1":
+        return zodiac
+
+    elif chart_type == "D9":
+        element = SIGN_ELEMENT[zodiac]
+        start = D9_START[element]
+        d9_sign_index = (start + slot) % 12
+        return signs[d9_sign_index]
+
+    elif chart_type in ("D10", "D12", "D7", "D2", "D3", "D4"):
+        # Generic: odd signs start from same sign, even signs start from 9th
+        sign_index = SIGN_INDEX[zodiac]
+        if sign_index % 2 == 0:  # odd sign (Aries=0, Gemini=2...)
+            start = sign_index
+        else:  # even sign
+            start = (sign_index + 8) % 12  # 9th from sign
+        div_sign_index = (start + slot) % 12
+        return signs[div_sign_index]
+
+    return zodiac
+
+
+def get_house_mapper(planets_data, chart_type):
+    """
+    Takes planets_data list and chart_type string.
+    Returns house_mapper dict like your existing API response.
+    """
+    # Step 1: Get divisional sign for each planet
+    planet_div_signs = []
+    ascendant_div_sign = None
+
+    for planet in planets_data:
+        div_sign = get_divisional_sign(
+            planet["zodiac"],
+            planet["degree_in_rashi"],
+            chart_type
+        )
+        planet_div_signs.append({
+            "name": planet["name"],
+            "sign": div_sign,
+            "degree": round(planet["degree_in_rashi"], 3)
+        })
+        if planet["name"] == "Ascendant":
+            ascendant_div_sign = div_sign
+
+    # Step 2: Build house map using Ascendant as House 1
+    asc_index = SIGN_INDEX[ascendant_div_sign]
+    house_map = {str(i): [] for i in range(1, 13)}
+
+    for p in planet_div_signs:
+        if p["name"] == "Ascendant":
+            continue  # optionally skip or include
+        sign_index = SIGN_INDEX[p["sign"]]
+        house_number = ((sign_index - asc_index) % 12) + 1
+        house_map[str(house_number)].append(p)
+
+    return {chart_type: house_map}

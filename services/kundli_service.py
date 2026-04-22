@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from utils.core_logic import validate_parameters, convert_ist_to_utc, get_planet_data, build_house_map, update_json
+from utils import config
+from utils.core_logic import validate_parameters, convert_ist_to_utc, get_planet_data, build_house_map, update_json, \
+    get_house_mapper
 import swisseph as swe
 import os
 import json
@@ -47,7 +49,14 @@ def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: 
         # update_json_with_planet_data
         update_json("planets_data", planet_data)
 
-        house_mapper = build_house_map(planet_data)
-
+        # house_mapper = build_house_map(planet_data)
         # update_json_with_D1_data
-        return update_json("house_mapper", {"D1": house_mapper})
+        # return update_json("house_mapper", {"D1": house_mapper})
+
+        d1 = get_house_mapper(config.final_structure["planets_data"], "D1")
+        d9 = get_house_mapper(config.final_structure["planets_data"], "D9")
+        d10 = get_house_mapper(config.final_structure["planets_data"], "D10")
+
+        update_json("house_mapper", {**d1, **d9, **d10})
+
+        return config.final_structure
