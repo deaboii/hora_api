@@ -145,4 +145,4 @@ def update_json(node, data):
         config.final_structure["house_mapper"] = data
 
     # Convert to JSON string
-    return json.dumps(config.final_structure , indent=4)
+    return json.dumps(config.final_structure)
