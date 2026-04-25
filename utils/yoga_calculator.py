@@ -14,10 +14,7 @@ Usage:
     from yoga_calculator import calculate_yogas
     result = calculate_yogas(final_structure)   # dict returned by generate_kundli()
 """
-<<<<<<< HEAD
 from __future__ import annotations
-=======
->>>>>>> origin/master
 
 from utils.config import signs
 
@@ -203,21 +200,12 @@ def check_panch_mahapurusha(planets_data: list, d1: dict) -> dict:
             })
 
     return {
-<<<<<<< HEAD
         "present": str(bool(yogas_found)),
         "count": len(yogas_found),
         "yogas": str(yogas_found),
         "description": (
             "Panch Mahapurusha Yogas are formed when Mars; Mercury; Jupiter; Venus; or Saturn "
             "are in their own/exalted sign AND in a Kendra (1;4;7;10) house. "
-=======
-        "present": bool(yogas_found),
-        "count": len(yogas_found),
-        "yogas": yogas_found,
-        "description": (
-            "Panch Mahapurusha Yogas are formed when Mars, Mercury, Jupiter, Venus, or Saturn "
-            "are in their own/exalted sign AND in a Kendra (1,4,7,10) house. "
->>>>>>> origin/master
             "These are among the most powerful yogas in Vedic astrology."
         )
     }
@@ -281,11 +269,7 @@ def check_raj_yoga(planets_data: list, d1: dict) -> dict:
                     "trikona_lord": f"{tl} (lord of {th}th)",
                     "kendra_lord_house": kl_house,
                     "trikona_lord_house": tl_house,
-<<<<<<< HEAD
                     "description": f"{kl} (Kendra lord; house {kl_house}) mutually aspects {tl} (Trikona lord; house {tl_house})"
-=======
-                    "description": f"{kl} (Kendra lord, house {kl_house}) mutually aspects {tl} (Trikona lord, house {tl_house})"
->>>>>>> origin/master
                 })
             # Sign exchange (Parivartana)
             elif (
@@ -309,7 +293,6 @@ def check_raj_yoga(planets_data: list, d1: dict) -> dict:
         strength = "Absent"
 
     return {
-<<<<<<< HEAD
         "present": str(bool(yogas_found)),
         "count": len(yogas_found),
         "strength": strength,
@@ -318,16 +301,6 @@ def check_raj_yoga(planets_data: list, d1: dict) -> dict:
         "description": (
             "Raj Yoga is formed when lords of Kendra (1;4;7;10) and Trikona (1;5;9) houses "
             "conjunct; aspect; or exchange signs. It bestows power; authority; and success in life."
-=======
-        "present": bool(yogas_found),
-        "count": len(yogas_found),
-        "strength": strength,
-        "lagna": lagna_sign,
-        "yogas": yogas_found,
-        "description": (
-            "Raj Yoga is formed when lords of Kendra (1,4,7,10) and Trikona (1,5,9) houses "
-            "conjunct, aspect, or exchange signs. It bestows power, authority, and success in life."
->>>>>>> origin/master
         )
     }
 
@@ -378,11 +351,7 @@ def check_dhana_yoga(planets_data: list, d1: dict) -> dict:
                 "yoga": "Dhana Yoga",
                 "type": "2nd-11th Lord Mutual Aspect",
                 "planets": [lord_2, lord_11],
-<<<<<<< HEAD
                 "description": f"Lord of 2nd ({lord_2};house {h_lord2}) and 11th ({lord_11}; house {h_lord11}) mutually aspect each other"
-=======
-                "description": f"Lord of 2nd ({lord_2}, house {h_lord2}) and 11th ({lord_11}, house {h_lord11}) mutually aspect each other"
->>>>>>> origin/master
             })
 
     # 3. Lord of 5th or 9th conjunct lord of 2nd or 11th
@@ -422,11 +391,7 @@ def check_dhana_yoga(planets_data: list, d1: dict) -> dict:
             "type": "Venus-Jupiter Conjunction",
             "planets": ["Venus", "Jupiter"],
             "house": _house_of("Venus", d1),
-<<<<<<< HEAD
             "description": "Venus and Jupiter conjunct — Lakshmi-Guru Yoga; great wealth indicator"
-=======
-            "description": "Venus and Jupiter conjunct — Lakshmi-Guru Yoga, great wealth indicator"
->>>>>>> origin/master
         })
 
     # 6. Lord of 2nd in 2nd or 11th (strong placement)
@@ -440,7 +405,6 @@ def check_dhana_yoga(planets_data: list, d1: dict) -> dict:
         })
 
     return {
-<<<<<<< HEAD
         "present": str(bool(yogas_found)),
         "count": len(yogas_found),
         "lagna": lagna_sign,
@@ -448,15 +412,6 @@ def check_dhana_yoga(planets_data: list, d1: dict) -> dict:
         "description": (
             "Dhana Yogas are wealth-giving combinations. "
             "They involve lords of 2nd; 5th; 9th; and 11th houses connecting with each other, "
-=======
-        "present": bool(yogas_found),
-        "count": len(yogas_found),
-        "lagna": lagna_sign,
-        "yogas": yogas_found,
-        "description": (
-            "Dhana Yogas are wealth-giving combinations. "
-            "They involve lords of 2nd, 5th, 9th, and 11th houses connecting with each other, "
->>>>>>> origin/master
             "indicating financial prosperity and accumulation of wealth."
         )
     }
@@ -503,11 +458,7 @@ def check_moon_yogas(planets_data: list, d1: dict) -> dict:
                 "description": (
                     f"Jupiter in house {jupiter_house} is in Kendra ({relative_house}th) "
                     f"from Moon in house {moon_house}. "
-<<<<<<< HEAD
                     "Gaja Kesari Yoga gives wisdom;fame; good fortune; and respected status."
-=======
-                    "Gaja Kesari Yoga gives wisdom, fame, good fortune, and respected status."
->>>>>>> origin/master
                 )
             }
 
@@ -540,11 +491,7 @@ def check_moon_yogas(planets_data: list, d1: dict) -> dict:
             moon_conjuncts = _planets_in_house(moon_house, d1)
             benefics_with_moon = [p for p in moon_conjuncts if p in ("Jupiter", "Venus", "Mercury")]
             if benefics_with_moon:
-<<<<<<< HEAD
                 cancellations.append(f"Moon conjunct {'; '.join(benefics_with_moon)} — Kemdrum cancelled")
-=======
-                cancellations.append(f"Moon conjunct {', '.join(benefics_with_moon)} — Kemdrum cancelled")
->>>>>>> origin/master
 
             # 3. Moon in own sign or exalted
             moon_sign = pm.get("Moon", {}).get("zodiac")
@@ -554,11 +501,7 @@ def check_moon_yogas(planets_data: list, d1: dict) -> dict:
                 cancellations.append("Moon exalted (Taurus) — Kemdrum cancelled")
 
             kemdrum = {
-<<<<<<< HEAD
                 "present": str(not bool(cancellations)),
-=======
-                "present": not bool(cancellations),
->>>>>>> origin/master
                 "moon_house": moon_house,
                 "house_before_moon": house_before,
                 "house_after_moon": house_after,
@@ -567,11 +510,7 @@ def check_moon_yogas(planets_data: list, d1: dict) -> dict:
                 "cancellations": cancellations,
                 "description": (
                     "Kemdrum Yoga occurs when no planets occupy the 2nd or 12th house from Moon. "
-<<<<<<< HEAD
                     "It can cause loneliness; struggles; and lack of support in life."
-=======
-                    "It can cause loneliness, struggles, and lack of support in life."
->>>>>>> origin/master
                 )
             }
 
@@ -617,11 +556,7 @@ def check_viparita_raja_yoga(planets_data: list, d1: dict) -> dict:
             "house": h_lord6,
             "description": (
                 f"Lord of 6th ({lord_6}) placed in house {h_lord6} (Dusthana). "
-<<<<<<< HEAD
                 "Harsha Yoga gives victory over enemies; good health; and happiness."
-=======
-                "Harsha Yoga gives victory over enemies, good health, and happiness."
->>>>>>> origin/master
             )
         })
 
@@ -634,11 +569,7 @@ def check_viparita_raja_yoga(planets_data: list, d1: dict) -> dict:
             "house": h_lord8,
             "description": (
                 f"Lord of 8th ({lord_8}) placed in house {h_lord8} (Dusthana). "
-<<<<<<< HEAD
                 "Sarala Yoga gives fearlessness; longevity; and success despite adversity."
-=======
-                "Sarala Yoga gives fearlessness, longevity, and success despite adversity."
->>>>>>> origin/master
             )
         })
 
@@ -651,11 +582,7 @@ def check_viparita_raja_yoga(planets_data: list, d1: dict) -> dict:
             "house": h_lord12,
             "description": (
                 f"Lord of 12th ({lord_12}) placed in house {h_lord12} (Dusthana). "
-<<<<<<< HEAD
                 "Vimala Yoga gives virtuous character; financial discipline; and spiritual growth."
-=======
-                "Vimala Yoga gives virtuous character, financial discipline, and spiritual growth."
->>>>>>> origin/master
             )
         })
 
@@ -665,7 +592,6 @@ def check_viparita_raja_yoga(planets_data: list, d1: dict) -> dict:
             y["strength"] = "Strong — multiple Viparita combinations present"
 
     return {
-<<<<<<< HEAD
         "present": str(bool(yogas_found)),
         "count": len(yogas_found),
         "lagna": lagna_sign,
@@ -674,16 +600,6 @@ def check_viparita_raja_yoga(planets_data: list, d1: dict) -> dict:
             "Viparita Raja Yoga is formed when lords of Dusthana houses (6;8;12) "
             "are placed in other Dusthana houses. It gives unexpected rise; "
             "success through hardship; and ability to overcome enemies and obstacles."
-=======
-        "present": bool(yogas_found),
-        "count": len(yogas_found),
-        "lagna": lagna_sign,
-        "yogas": yogas_found,
-        "description": (
-            "Viparita Raja Yoga is formed when lords of Dusthana houses (6,8,12) "
-            "are placed in other Dusthana houses. It gives unexpected rise, "
-            "success through hardship, and ability to overcome enemies and obstacles."
->>>>>>> origin/master
         )
     }
 
@@ -711,8 +627,4 @@ def calculate_yogas(final_structure: dict) -> dict:
         "gaja_kesari_yoga":        moon_yogas["gaja_kesari_yoga"],
         "kemdrum_yoga":            moon_yogas["kemdrum_yoga"],
         "viparita_raja_yoga":      check_viparita_raja_yoga(planets_data, d1),
-<<<<<<< HEAD
     }
-=======
-    }
->>>>>>> origin/master
