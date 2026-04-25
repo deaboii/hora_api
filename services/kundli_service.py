@@ -87,6 +87,7 @@ def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: 
             "current": current,
             "all_mahadashas": all_dashas
         })
+config.final_structure["yogas"] = calculate_yogas(config.final_structure)
 
         #--- dosha calculation
 
