@@ -395,3 +395,75 @@ def get_current_dasha(all_dashas):
                                 "pratyantar_end": prat["end"]
                             }
     return {}
+
+
+# ─────────────────────────────────────────────
+# SUNRISE
+# ─────────────────────────────────────────────
+def get_sunrise_sunset(year, month, day, lat, lon):
+    jd = swe.julday(year, month, day, 0.0)
+    geopos = (lon, lat, 0)
+
+    _, tret_rise = swe.rise_trans(jd, swe.SUN, swe.CALC_RISE, geopos)
+    _, tret_set = swe.rise_trans(jd, swe.SUN, swe.CALC_SET, geopos)
+
+    def to_ist(h_utc):
+        h_ist = h_utc + 5.5
+        if h_ist >= 24:
+            h_ist -= 24
+        hour = int(h_ist)
+        minute = int((h_ist - hour) * 60)
+        return f"{hour:02d}:{minute:02d}"
+
+    _, _, _, h_rise = swe.revjul(tret_rise[0])
+    _, _, _, h_set = swe.revjul(tret_set[0])
+
+    return {
+        "sunrise": to_ist(h_rise),
+        "sunset": to_ist(h_set)
+    }
+# ─────────────────────────────────────────────
+# TITHI
+# ─────────────────────────────────────────────
+
+TITHI_NAMES = [
+    "Pratipada", "Dwitiya", "Tritiya", "Chaturthi", "Panchami",
+    "Shashthi", "Saptami", "Ashtami", "Navami", "Dashami",
+    "Ekadashi", "Dwadashi", "Trayodashi", "Chaturdashi", "Purnima / Amavasya"
+]
+
+def get_tithi(jd_ut):
+    """
+    Calculate Tithi (lunar day) from a Julian Day (UT).
+    Returns tithi number (1–30), name, paksha (Shukla/Krishna), and
+    the Moon–Sun angular difference that produced it.
+    """
+    # Tropical longitudes for Moon and Sun
+    sun_lon  = swe.calc_ut(jd_ut, swe.SUN,  swe.FLG_SWIEPH)[0][0]
+    moon_lon = swe.calc_ut(jd_ut, swe.MOON, swe.FLG_SWIEPH)[0][0]
+
+    # Angular difference (Moon ahead of Sun)
+    diff = (moon_lon - sun_lon) % 360.0
+
+    # Each tithi spans 12°
+    tithi_number = int(diff / 12.0) + 1   # 1–30
+
+    # Paksha
+    paksha = "Shukla" if tithi_number <= 15 else "Krishna"
+
+    # Name index (1–15 repeats for both pakshas)
+    name_index = (tithi_number - 1) % 15   # 0–14
+    tithi_name = TITHI_NAMES[name_index]
+
+    # Special override for 15th tithis
+    if tithi_number == 15:
+        tithi_name = "Purnima"
+    elif tithi_number == 30:
+        tithi_name = "Amavasya"
+
+    return {
+        "tithi_number": tithi_number,
+        "tithi_name": tithi_name,
+        "paksha": paksha,
+        "moon_sun_diff": round(diff, 4)
+    }

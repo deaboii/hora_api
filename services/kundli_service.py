@@ -2,7 +2,7 @@ from datetime import datetime
 
 from utils import config
 from utils.core_logic import validate_parameters, convert_ist_to_utc, get_planet_data, build_house_map, update_json, \
-    get_house_mapper, calculate_all_dashas, get_current_dasha
+    get_house_mapper, calculate_all_dashas, get_current_dasha, get_tithi, get_sunrise_sunset
 import swisseph as swe
 import os
 import json
@@ -34,12 +34,22 @@ def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: 
         # Julian Day in UT
         jd_ut = swe.julday(year, month, day, utc_decimal)
 
+        sunrise_data = get_sunrise_sunset(year, month, day, lat,lon)
+        parts = sunrise_data["sunrise"].split(":")
+        sunrise_utc = int(parts[0]) + int(parts[1])/60.0 - 5.5
+        jd_sunrise = swe.julday(year, month, day,float(sunrise_utc))
+        tithi_data = get_tithi(jd_sunrise)
+
         details = {
             "name": name,
             "date_of_birth": date_str,
             "time_of_birth": birth_time,
             "lat": lat,
-            "lon": lon
+            "lon": lon,
+            "sunrise": sunrise_data["sunrise"],
+            "sunset": sunrise_data["sunset"],
+            "tithi" : tithi_data
+
         }
         # update_json_with_details
         update_json("details", details)
