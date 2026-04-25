@@ -1,4 +1,3 @@
-
 """
 dosha_calculator.py
 -------------------
@@ -11,8 +10,10 @@ Usage:
     from dosha_calculator import calculate_doshas
     result = calculate_doshas(final_structure)   # pass the dict returned by generate_kundli()
 """
+from __future__ import annotations
 
 from typing import Any
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -57,9 +58,9 @@ def _longitude_diff(lon1: float, lon2: float) -> float:
 MANGAL_DOSHA_HOUSES = {1, 2, 4, 7, 8, 12}
 
 # Classic cancellation conditions (D1-based)
-MANGAL_CANCEL_SIGNS_FOR_MARS = {"Aries", "Scorpio"}          # own signs
-MANGAL_CANCEL_SIGNS_LAGNA    = {"Aries", "Scorpio", "Cancer",
-                                  "Capricorn", "Leo", "Sagittarius"}
+MANGAL_CANCEL_SIGNS_FOR_MARS = {"Aries", "Scorpio"}  # own signs
+MANGAL_CANCEL_SIGNS_LAGNA = {"Aries", "Scorpio", "Cancer",
+                             "Capricorn", "Leo", "Sagittarius"}
 
 
 def check_mangal_dosha(planets_data: list, d1: dict, d9: dict) -> dict:
@@ -72,10 +73,10 @@ def check_mangal_dosha(planets_data: list, d1: dict, d9: dict) -> dict:
     """
     pm = _planet_map(planets_data)
 
-    mars_house_from_lagna  = _house_of("Mars",  d1)
-    moon_house             = _house_of("Moon",  d1)
-    venus_house            = _house_of("Venus", d1)
-    mars_zodiac            = pm["Mars"]["zodiac"] if "Mars" in pm else None
+    mars_house_from_lagna = _house_of("Mars", d1)
+    moon_house = _house_of("Moon", d1)
+    venus_house = _house_of("Venus", d1)
+    mars_zodiac = pm["Mars"]["zodiac"] if "Mars" in pm else None
 
     # Relative house of Mars from Moon and Venus
     def relative_house(reference_house: int | None) -> int | None:
@@ -124,9 +125,9 @@ def check_mangal_dosha(planets_data: list, d1: dict, d9: dict) -> dict:
         jupiter_house = _house_of("Jupiter", d1)
         if jupiter_house and mars_house_from_lagna:
             jupiter_aspects = {
-                (jupiter_house + 4)  % 12 + 1,
-                (jupiter_house + 6)  % 12 + 1,
-                (jupiter_house + 8)  % 12 + 1,
+                (jupiter_house + 4) % 12 + 1,
+                (jupiter_house + 6) % 12 + 1,
+                (jupiter_house + 8) % 12 + 1,
             }
             if mars_house_from_lagna in jupiter_aspects:
                 cancellations.append("Jupiter aspects Mars — Mangal Dosha significantly reduced")
@@ -154,15 +155,15 @@ def check_mangal_dosha(planets_data: list, d1: dict, d9: dict) -> dict:
         severity = severity + " (with cancellation)"
 
     return {
-        "present": present,
+        "present": str(present),
         "affected_from": affected_from,
         "mars_house_d1": mars_house_from_lagna,
         "mars_sign_d1": mars_zodiac,
-        "severity": severity,
+        "severity": str(severity),
         "cancellations": cancellations,
         "description": (
-            "Mangal Dosha occurs when Mars is placed in houses 1,2,4,7,8,12 "
-            "counted from Lagna, Moon, or Venus. It can affect marriage and relationships."
+            'Mangal Dosha occurs when Mars is placed in houses 1-2-4-7-8-12'
+            'counted from Lagna; Moon; or Venus. It can affect marriage and relationships.'
         )
     }
 
@@ -228,21 +229,21 @@ def check_kaal_sarp_dosha(planets_data: list) -> dict:
     planets_outside = [
         p for p in PLANET_ORDER
         if p in pm and not (
-            in_rahu_ketu_arc(pm[p]["longitude"], rahu_lon, ketu_lon) or
-            in_rahu_ketu_arc(pm[p]["longitude"], ketu_lon, rahu_lon)
+                in_rahu_ketu_arc(pm[p]["longitude"], rahu_lon, ketu_lon) or
+                in_rahu_ketu_arc(pm[p]["longitude"], ketu_lon, rahu_lon)
         )
     ]
 
     return {
-        "present": present,
-        "dosha_name": dosha_name,
-        "dosha_type": dosha_type,
+        "present": str(present),
+        "dosha_name": str(dosha_name),
+        "dosha_type": str(dosha_type),
         "rahu_longitude": round(rahu_lon, 4),
         "ketu_longitude": round(ketu_lon, 4),
         "planets_outside_arc": planets_outside if not present else [],
         "description": (
             "Kaal Sarp Dosha occurs when all 7 planets are hemmed between Rahu and Ketu. "
-            "It can cause obstacles, delays, and karmic challenges in life."
+            'It can cause obstacles; delays; and karmic challenges in life.'
         )
     }
 
@@ -263,10 +264,10 @@ def check_pitra_dosha(planets_data: list, d1: dict) -> dict:
     """
     pm = _planet_map(planets_data)
 
-    sun_house   = _house_of("Sun",   d1)
-    rahu_house  = _house_of("Rahu",  d1)
-    ketu_house  = _house_of("Ketu",  d1)
-    moon_house  = _house_of("Moon",  d1)
+    sun_house = _house_of("Sun", d1)
+    rahu_house = _house_of("Rahu", d1)
+    ketu_house = _house_of("Ketu", d1)
+    moon_house = _house_of("Moon", d1)
     saturn_house = _house_of("Saturn", d1)
 
     triggers = []
@@ -308,8 +309,8 @@ def check_pitra_dosha(planets_data: list, d1: dict) -> dict:
     severity = "High" if len(triggers) >= 3 else "Moderate" if len(triggers) == 2 else "Low" if triggers else "None"
 
     return {
-        "present": present,
-        "severity": severity,
+        "present": str(present),
+        "severity": str(severity),
         "triggers": triggers,
         "sun_house": sun_house,
         "rahu_house": rahu_house,
@@ -334,8 +335,8 @@ def check_guru_chandal_dosha(planets_data: list, d1: dict) -> dict:
     pm = _planet_map(planets_data)
 
     jupiter_house = _house_of("Jupiter", d1)
-    rahu_house    = _house_of("Rahu",    d1)
-    ketu_house    = _house_of("Ketu",    d1)
+    rahu_house = _house_of("Rahu", d1)
+    ketu_house = _house_of("Ketu", d1)
 
     triggers = []
     dosha_type = None
@@ -379,16 +380,16 @@ def check_guru_chandal_dosha(planets_data: list, d1: dict) -> dict:
     severity = "High" if len(triggers) >= 2 else "Moderate" if triggers else "None"
 
     return {
-        "present": present,
-        "dosha_type": dosha_type,
-        "severity": severity,
+        "present": str(present),
+        "dosha_type": str(dosha_type),
+        "severity": str(severity),
         "triggers": triggers,
         "jupiter_house": jupiter_house,
         "rahu_house": rahu_house,
         "ketu_house": ketu_house,
         "description": (
-            "Guru Chandal Dosha afflicts Jupiter (wisdom, dharma, teachers) by Rahu/Ketu. "
-            "It can lead to misguided decisions, issues with gurus, and ethical dilemmas."
+            "Guru Chandal Dosha afflicts Jupiter (wisdom; dharma; teachers) by Rahu/Ketu. "
+            "It can lead to misguided decisions; issues with gurus; and ethical dilemmas."
         )
     }
 
@@ -413,23 +414,23 @@ def check_grahan_dosha(planets_data: list, d1: dict, d9: dict) -> dict:
     # Surya Grahan
     if _are_conjunct("Sun", "Rahu", d1):
         diff = _longitude_diff(pm["Sun"]["longitude"], pm["Rahu"]["longitude"])
-        triggers.append(f"Sun conjunct Rahu in D1 (separation: {round(diff,2)}°)")
+        triggers.append(f"Sun conjunct Rahu in D1 (separation: {round(diff, 2)}°)")
         grahan_types.append("Surya Grahan (Solar)")
 
     if _are_conjunct("Sun", "Ketu", d1):
         diff = _longitude_diff(pm["Sun"]["longitude"], pm["Ketu"]["longitude"])
-        triggers.append(f"Sun conjunct Ketu in D1 (separation: {round(diff,2)}°)")
+        triggers.append(f"Sun conjunct Ketu in D1 (separation: {round(diff, 2)}°)")
         grahan_types.append("Surya Grahan (Solar)")
 
     # Chandra Grahan
     if _are_conjunct("Moon", "Rahu", d1):
         diff = _longitude_diff(pm["Moon"]["longitude"], pm["Rahu"]["longitude"])
-        triggers.append(f"Moon conjunct Rahu in D1 — Chandra Grahan (separation: {round(diff,2)}°)")
+        triggers.append(f"Moon conjunct Rahu in D1 — Chandra Grahan (separation: {round(diff, 2)}°)")
         grahan_types.append("Chandra Grahan (Lunar)")
 
     if _are_conjunct("Moon", "Ketu", d1):
         diff = _longitude_diff(pm["Moon"]["longitude"], pm["Ketu"]["longitude"])
-        triggers.append(f"Moon conjunct Ketu in D1 — Chandra Grahan (separation: {round(diff,2)}°)")
+        triggers.append(f"Moon conjunct Ketu in D1 — Chandra Grahan (separation: {round(diff, 2)}°)")
         grahan_types.append("Chandra Grahan (Lunar)")
 
     present = bool(triggers)
@@ -452,9 +453,9 @@ def check_grahan_dosha(planets_data: list, d1: dict, d9: dict) -> dict:
             severity = "Low"
 
     return {
-        "present": present,
+        "present": str(present),
         "grahan_types": list(set(grahan_types)),
-        "severity": severity,
+        "severity": str(severity),
         "triggers": triggers,
         "d9_confirmation": d9_confirmation,
         "description": (
@@ -470,6 +471,7 @@ def check_grahan_dosha(planets_data: list, d1: dict, d9: dict) -> dict:
 
 SATURN_AFFLICTION_HOUSES = {1, 4, 7, 8, 12}
 
+
 def check_shani_dosha(planets_data: list, d1: dict) -> dict:
     """
     Natal Shani Dosha:
@@ -479,8 +481,8 @@ def check_shani_dosha(planets_data: list, d1: dict) -> dict:
     """
     pm = _planet_map(planets_data)
 
-    saturn_house  = _house_of("Saturn", d1)
-    moon_house    = _house_of("Moon",   d1)
+    saturn_house = _house_of("Saturn", d1)
+    moon_house = _house_of("Moon", d1)
     saturn_zodiac = pm.get("Saturn", {}).get("zodiac")
 
     triggers = []
@@ -520,15 +522,15 @@ def check_shani_dosha(planets_data: list, d1: dict) -> dict:
         severity += " (with cancellation)"
 
     return {
-        "present": present,
-        "severity": severity,
+        "present": str(present),
+        "severity": str(severity),
         "triggers": triggers,
         "cancellations": cancellations,
         "saturn_house": saturn_house,
         "saturn_sign": saturn_zodiac,
         "description": (
-            "Shani Dosha (natal) denotes Saturn's challenging placement. "
-            "It can cause delays, hardships, and karmic lessons in the affected houses."
+            'Shani Dosha (natal) denotes Saturn;s challenging placement. '
+            'It can cause delays, hardships, and karmic lessons in the affected houses.'
         )
     }
 
@@ -551,10 +553,10 @@ def calculate_doshas(final_structure: dict[str, Any]) -> dict:
     d9 = house_mapper.get("D9", {})
 
     return {
-        "mangal_dosha":       check_mangal_dosha(planets_data, d1, d9),
-        "kaal_sarp_dosha":    check_kaal_sarp_dosha(planets_data),
-        "pitra_dosha":        check_pitra_dosha(planets_data, d1),
+        "mangal_dosha": check_mangal_dosha(planets_data, d1, d9),
+        "kaal_sarp_dosha": check_kaal_sarp_dosha(planets_data),
+        "pitra_dosha": check_pitra_dosha(planets_data, d1),
         "guru_chandal_dosha": check_guru_chandal_dosha(planets_data, d1),
-        "grahan_dosha":       check_grahan_dosha(planets_data, d1, d9),
-        "shani_dosha":        check_shani_dosha(planets_data, d1),
+        "grahan_dosha": check_grahan_dosha(planets_data, d1, d9),
+        "shani_dosha": check_shani_dosha(planets_data, d1),
     }

@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta
 
 from utils import config
-from utils.config import planets, signs, nakshatras, DASHA_SEQUENCE, NAKSHATRA_LORDS
+from utils.config import planets, signs, nakshatras, DASHA_SEQUENCE, NAKSHATRA_LORDS, TITHI_NAMES
 import swisseph as swe
 import os
 
@@ -425,12 +425,6 @@ def get_sunrise_sunset(year, month, day, lat, lon):
 # ─────────────────────────────────────────────
 # TITHI
 # ─────────────────────────────────────────────
-
-TITHI_NAMES = [
-    "Pratipada", "Dwitiya", "Tritiya", "Chaturthi", "Panchami",
-    "Shashthi", "Saptami", "Ashtami", "Navami", "Dashami",
-    "Ekadashi", "Dwadashi", "Trayodashi", "Chaturdashi", "Purnima / Amavasya"
-]
 
 def get_tithi(jd_ut):
     """

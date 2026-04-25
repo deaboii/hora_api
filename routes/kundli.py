@@ -6,4 +6,3 @@ router = APIRouter()
 def kundli_route(name: str, dob: str,birth_time:str, lat: float, lon: float):
     return generate_kundli(name, dob,birth_time, lat, lon)
 
-

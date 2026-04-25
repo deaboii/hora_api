@@ -7,6 +7,9 @@ import swisseph as swe
 import os
 import json
 
+from utils.dosha_calculator import calculate_doshas
+from utils.yoga_calculator import calculate_yogas
+
 # This works both locally AND on Render
 # Go one level UP from /services to reach project root
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -85,4 +88,14 @@ def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: 
             "all_mahadashas": all_dashas
         })
 
+        #--- dosha calculation
+
+        doshas = calculate_doshas(config.final_structure)
+        config.final_structure["doshas"] = doshas
+
+       #-- yoga calculator
+
+        config.final_structure["yogas"] = calculate_yogas(config.final_structure)
+
         return config.final_structure
+

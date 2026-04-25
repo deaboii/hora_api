@@ -108,5 +108,11 @@ NAKSHATRA_LORDS = [
     "Mercury", # Revati
 ]
 
+TITHI_NAMES = [
+    "Pratipada", "Dwitiya", "Tritiya", "Chaturthi", "Panchami",
+    "Shashthi", "Saptami", "Ashtami", "Navami", "Dashami",
+    "Ekadashi", "Dwadashi", "Trayodashi", "Chaturdashi", "Purnima / Amavasya"
+]
+
 
 final_structure = {}
