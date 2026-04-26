@@ -7,6 +7,7 @@ import swisseph as swe
 import os
 
 from utils.dosha_calculator import calculate_doshas
+from utils.marriage_predictor import predict_marriage
 from utils.remedy_calculator import calculate_remedies
 from utils.transot_calculator import calculate_transits
 from utils.yoga_calculator import calculate_yogas
@@ -101,6 +102,7 @@ def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: 
         config.final_structure["transits"] = calculate_transits(config.final_structure)
 
         config.final_structure["remedies"] = calculate_remedies(config.final_structure)
+        config.final_structure["marriage"] = predict_marriage(config.final_structure)
 
         return config.final_structure
 
