@@ -1,13 +1,14 @@
 from datetime import datetime
 
 from utils import config
-from utils.core_logic import validate_parameters, convert_ist_to_utc, get_planet_data, build_house_map, update_json, \
+from utils.core_logic import validate_parameters, convert_ist_to_utc, get_planet_data, update_json, \
     get_house_mapper, calculate_all_dashas, get_current_dasha, get_tithi, get_sunrise_sunset
 import swisseph as swe
 import os
-import json
 
 from utils.dosha_calculator import calculate_doshas
+from utils.remedy_calculator import calculate_remedies
+from utils.transot_calculator import calculate_transits
 from utils.yoga_calculator import calculate_yogas
 
 # This works both locally AND on Render
@@ -96,6 +97,10 @@ def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: 
        #-- yoga calculator
 
         config.final_structure["yogas"] = calculate_yogas(config.final_structure)
+
+        config.final_structure["transits"] = calculate_transits(config.final_structure)
+
+        config.final_structure["remedies"] = calculate_remedies(config.final_structure)
 
         return config.final_structure
 
