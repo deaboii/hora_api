@@ -33,10 +33,10 @@ from utils.config import signs, DASHA_SEQUENCE
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-SIGN_INDEX   = {sign: i for i, sign in enumerate(signs)}
+SIGN_INDEX = {sign: i for i, sign in enumerate(signs)}
 
-KENDRA_HOUSES   = {1, 4, 7, 10}
-TRIKONA_HOUSES  = {1, 5, 9}
+KENDRA_HOUSES = {1, 4, 7, 10}
+TRIKONA_HOUSES = {1, 5, 9}
 DUSTHANA_HOUSES = {6, 8, 12}
 
 NATURAL_BENEFICS = {"Jupiter", "Venus", "Mercury", "Moon"}
@@ -60,24 +60,25 @@ OWN_SIGNS = {
     "Venus": {"Taurus", "Libra"}, "Saturn": {"Capricorn", "Aquarius"},
 }
 SIGN_LORD = {
-    "Aries": "Mars",   "Taurus": "Venus",  "Gemini": "Mercury",
-    "Cancer": "Moon",  "Leo": "Sun",       "Virgo": "Mercury",
-    "Libra": "Venus",  "Scorpio": "Mars",  "Sagittarius": "Jupiter",
+    "Aries": "Mars", "Taurus": "Venus", "Gemini": "Mercury",
+    "Cancer": "Moon", "Leo": "Sun", "Virgo": "Mercury",
+    "Libra": "Venus", "Scorpio": "Mars", "Sagittarius": "Jupiter",
     "Capricorn": "Saturn", "Aquarius": "Saturn", "Pisces": "Jupiter",
 }
 
 # Planet descriptions for spouse characteristics (UL occupants)
 PLANET_SPOUSE_DESC = {
-    "Sun":     "charming, from a respectable / royal family, authoritative",
-    "Moon":    "gentle, nurturing, emotional, possibly fair-complexioned",
-    "Mars":    "bold and energetic (good); quarrelsome and aggressive (afflicted)",
+    "Sun": "charming, from a respectable / royal family, authoritative",
+    "Moon": "gentle, nurturing, emotional, possibly fair-complexioned",
+    "Mars": "bold and energetic (good); quarrelsome and aggressive (afflicted)",
     "Mercury": "intelligent, communicative, witty (good); indecisive (afflicted)",
     "Jupiter": "wise, noble, well-educated, spiritual, generous",
-    "Venus":   "beautiful/handsome, artistic, luxury-loving, refined",
-    "Saturn":  "disciplined, older or serious, may have delays in marriage",
-    "Rahu":    "unconventional, foreign connection, ambitious (good); deceptive (bad)",
-    "Ketu":    "spiritual, detached (good); short-tempered, eccentric (afflicted)",
+    "Venus": "beautiful/handsome, artistic, luxury-loving, refined",
+    "Saturn": "disciplined, older or serious, may have delays in marriage",
+    "Rahu": "unconventional, foreign connection, ambitious (good); deceptive (bad)",
+    "Ketu": "spiritual, detached (good); short-tempered, eccentric (afflicted)",
 }
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Generic helpers
@@ -171,7 +172,7 @@ def analyze_upapada(lagna_sign: str, planets_data: list, d1: dict) -> dict:
     """
     Analyze Upapada Lagna (UL) for marriage quality, spouse nature,
     marriage longevity, and separation risks.
-    
+
     Source: Narasimha Rao, Ch. 9 (Arudha Padas)
     """
     ul_sign = _calculate_upapada(lagna_sign, planets_data)
@@ -275,7 +276,7 @@ def _find_dara_karaka(planets_data: list) -> dict | None:
     Dara Karaka = planet with the LOWEST degree in its sign
     (in Jaimini chara karaka system, 8 karakas version using Rahu).
     DK represents the spouse directly (not 7th from DK).
-    
+
     Source: Narasimha Rao, Ch. 8 (Karakas)
     """
     karaka_planets = ["Sun", "Moon", "Mars", "Mercury", "Jupiter", "Venus", "Saturn", "Rahu"]
@@ -304,7 +305,7 @@ def analyze_dara_karaka(planets_data: list, d1: dict, d9: dict) -> dict:
     """
     DK directly represents the spouse. Its house, sign, and strength
     give clues about the spouse's personality and the marriage quality.
-    
+
     Source: Narasimha Rao, Ch. 8
     """
     dk = _find_dara_karaka(planets_data)
@@ -356,7 +357,7 @@ def analyze_dara_karaka(planets_data: list, d1: dict, d9: dict) -> dict:
 def analyze_7th_house(lagna_sign: str, planets_data: list, d1: dict, d9: dict) -> dict:
     """
     Comprehensive 7th house analysis in both D1 (physical) and D9 (dharmic).
-    
+
     Source: Narasimha Rao, Ch. 7 (Houses), Ch. 25 (Divisional Charts)
     """
     pm = _planet_map(planets_data)
@@ -503,7 +504,7 @@ def analyze_darapada(lagna_sign: str, planets_data: list, ul_sign: str) -> dict:
     """
     A7 shows the kinds of people one associates with, which shapes the
     perception of one's relationships. It complements UL analysis.
-    
+
     Source: Narasimha Rao, Ch. 9
     """
     a7_sign = _calculate_darapada(lagna_sign, planets_data)
@@ -732,26 +733,47 @@ def analyze_multiple_marriages(lagna_sign: str, planets_data: list, d1: dict, ul
 # 7. Marriage Timing Signals (Dasha-based)
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _parse_dasha_date(date_str: str):
+    """Parse dasha date string DD-MM-YYYY to datetime."""
+    from datetime import datetime
+    return datetime.strptime(date_str, "%d-%m-%Y")
+
+
 def analyze_marriage_timing_dasha(
-    lagna_sign: str, planets_data: list, d1: dict, d9: dict,
-    ul_sign: str, all_dashas: list
+        lagna_sign: str, planets_data: list, d1: dict, d9: dict,
+        ul_sign: str, all_dashas: list
 ) -> dict:
     """
-    Identifies which Mahadasha and Antardasha periods are most likely
-    to bring marriage, using the multi-layered approach from the book.
+    Identifies marriage-giving Dasha periods with THREE priority layers:
 
-    Source: Narasimha Rao, Ch. 19–20 (Narayana Dasa), Ch. 30 (Tajaka Dasa),
-            Ch. 35 (Real-life examples).
+      LAYER 1 — CURRENT RUNNING PERIOD
+        Checks if the CURRENTLY running Mahadasha/Antardasha/Pratyantar
+        itself is a marriage-giving combination. If yes, marriage could
+        happen right now or very soon.
 
-    Triggering criteria for a dasha/antardasha to give marriage:
-      1. Planet is 7th lord in D1
-      2. Planet is 7th lord in D9 (most important — D9 is THE marriage chart)
-      3. Planet is Venus (natural significator)
-      4. Planet is DK (Dara Karaka)
-      5. Planet owns or occupies a trine from UL (1st, 3rd, 8th from UL)
-      6. Planet is lagna lord (lagna's dasha favours all auspicious events)
-      7. Planet is well-placed in D9 (kendra or trikona from D9 lagna)
+      LAYER 2 — NEAR FUTURE (next ~10 years from today)
+        Scans ALL Antardashas within the current + next Mahadasha that
+        fall within the next 10 years, scored for marriage potential.
+        This catches Jupiter/Venus antardashas inside a running Saturn dasha etc.
+
+      LAYER 3 — ALL-TIME BEST
+        The strongest marriage-giving Mahadasha periods across the
+        entire lifespan (for reference).
+
+    Scoring criteria (additive):
+      +3  Planet is 7th lord in D1
+      +3  Planet is Dara Karaka (DK)
+      +2  Planet is Venus (natural significator)
+      +2  Planet occupies a UL-trine sign (1st/3rd/8th from UL)
+      +1  Planet is lagna lord
+      +1  Planet is present in D9
+      +2  Planet is strong (exalted/own sign) in D9
+
+    Score ≥ 4 = Strong marriage-giving period
+    Score 2–3 = Moderate — possible with supporting transits
     """
+    from datetime import datetime, timedelta
+
     pm = _planet_map(planets_data)
     dk = _find_dara_karaka(planets_data)
     dk_planet = dk["planet"] if dk else None
@@ -766,6 +788,9 @@ def analyze_marriage_timing_dasha(
     ul_8th = signs[(SIGN_INDEX[ul_sign] + 7) % 12]
     ul_trine_signs = {ul_1st, ul_3rd, ul_8th}
 
+    today = datetime.today()
+    near_future_cutoff = today + timedelta(days=365 * 10)  # next 10 years
+
     def score_planet_for_marriage(planet_name: str) -> tuple[int, list[str]]:
         reasons = []
         score = 0
@@ -773,10 +798,9 @@ def analyze_marriage_timing_dasha(
 
         if planet_name == lord_7_d1:
             score += 3
-            reasons.append("Is 7th lord in D1 (rasi chart)")
+            reasons.append(f"7th lord in D1 ({lord_7_d1})")
 
-        # 7th lord in D9: check if planet rules the 7th house sign in D9
-        # We determine D9 lagna from the house_mapper structure
+        # Check presence and strength in D9
         p_sign_d9 = None
         for h, occupants in d9.items():
             for p in occupants:
@@ -784,74 +808,219 @@ def analyze_marriage_timing_dasha(
                     p_sign_d9 = p["sign"]
         if p_sign_d9:
             score += 1
-            reasons.append(f"Present in D9 in sign {p_sign_d9}")
-            if _planet_strength_label(planet_name, p_sign_d9) in ("exalted", "own sign"):
+            reasons.append(f"Present in D9 ({p_sign_d9})")
+            strength_d9 = _planet_strength_label(planet_name, p_sign_d9)
+            if strength_d9 in ("exalted", "own sign"):
                 score += 2
-                reasons.append(f"Strong in D9 ({_planet_strength_label(planet_name, p_sign_d9)})")
+                reasons.append(f"Strong in D9 — {strength_d9}")
 
         if planet_name == "Venus":
             score += 2
-            reasons.append("Is Venus (natural significator of marriage)")
+            reasons.append("Venus — natural significator of marriage")
 
         if planet_name == dk_planet:
             score += 3
-            reasons.append("Is Dara Karaka (chara karaka for spouse)")
+            reasons.append(f"Dara Karaka — chara karaka for spouse")
 
-        # Occupies or owns UL trine
         if p_data and p_data["zodiac"] in ul_trine_signs:
             score += 2
-            reasons.append(f"Occupies UL-trine sign ({p_data['zodiac']})")
+            reasons.append(f"Occupies UL-trine sign {p_data['zodiac']}")
 
         if planet_name == lord_lagna:
             score += 1
-            reasons.append("Is lagna lord (favours auspicious events)")
+            reasons.append("Lagna lord — supports all auspicious events")
 
         return score, reasons
 
-    # Evaluate all Mahadashas
-    favorable_periods = []
-    for maha in all_dashas:
-        m_planet = maha["planet"]
-        m_score, m_reasons = score_planet_for_marriage(m_planet)
+    # ── LAYER 1: Current running period ──────────────────────────────────────
+    current_period = None
+    current_maha_planet = None
+    current_antar_planet = None
 
-        if m_score >= 2:
+    for maha in all_dashas:
+        m_start = _parse_dasha_date(maha["start"])
+        m_end = _parse_dasha_date(maha["end"])
+        if m_start <= today <= m_end:
+            current_maha_planet = maha["planet"]
+            m_score, m_reasons = score_planet_for_marriage(maha["planet"])
+
+            for antar in maha.get("antardasha", []):
+                a_start = _parse_dasha_date(antar["start"])
+                a_end = _parse_dasha_date(antar["end"])
+                if a_start <= today <= a_end:
+                    current_antar_planet = antar["planet"]
+                    a_score, a_reasons = score_planet_for_marriage(antar["planet"])
+
+                    # Check pratyantar
+                    current_prat = None
+                    for prat in antar.get("pratyantar", []):
+                        p_start = _parse_dasha_date(prat["start"])
+                        p_end = _parse_dasha_date(prat["end"])
+                        if p_start <= today <= p_end:
+                            p_score, p_reasons = score_planet_for_marriage(prat["planet"])
+                            current_prat = {
+                                "planet": prat["planet"],
+                                "start": prat["start"],
+                                "end": prat["end"],
+                                "score": p_score,
+                                "reasons": p_reasons,
+                                "is_marriage_giving": p_score >= 3,
+                            }
+                            break
+
+                    combined_score = m_score + a_score
+                    current_period = {
+                        "mahadasha": {
+                            "planet": maha["planet"],
+                            "start": maha["start"],
+                            "end": maha["end"],
+                            "score": m_score,
+                            "reasons": m_reasons,
+                        },
+                        "antardasha": {
+                            "planet": antar["planet"],
+                            "start": antar["start"],
+                            "end": antar["end"],
+                            "score": a_score,
+                            "reasons": a_reasons,
+                        },
+                        "pratyantar": current_prat,
+                        "combined_score": combined_score,
+                        "verdict": (
+                            "⭐ STRONG — Marriage very likely in this period"
+                            if combined_score >= 7
+                            else "✅ GOOD — Marriage possible; watch supporting transits"
+                            if combined_score >= 4
+                            else "⚠️ MODERATE — Possible but needs strong transit support"
+                            if combined_score >= 2
+                            else "❌ WEAK — Current period not a strong marriage trigger"
+                        ),
+                    }
+                    break
+            break
+
+    # ── LAYER 2: Near-future marriage windows (next 10 years) ────────────────
+    near_future_windows = []
+
+    for maha in all_dashas:
+        m_start = _parse_dasha_date(maha["start"])
+        m_end = _parse_dasha_date(maha["end"])
+
+        # Only consider Mahadashas that overlap with the next 10 years
+        if m_end < today or m_start > near_future_cutoff:
+            continue
+
+        m_score, m_reasons = score_planet_for_marriage(maha["planet"])
+
+        for antar in maha.get("antardasha", []):
+            a_start = _parse_dasha_date(antar["start"])
+            a_end = _parse_dasha_date(antar["end"])
+
+            # Only future or currently running antardashas, within 10 years
+            if a_end < today or a_start > near_future_cutoff:
+                continue
+
+            a_score, a_reasons = score_planet_for_marriage(antar["planet"])
+            combined = m_score + a_score
+
+            if combined >= 4:  # Only meaningful combinations
+                # Find the best pratyantar within this antardasha
+                best_prat = None
+                best_prat_score = 0
+                for prat in antar.get("pratyantar", []):
+                    p_start = _parse_dasha_date(prat["start"])
+                    p_end = _parse_dasha_date(prat["end"])
+                    if p_end < today:
+                        continue
+                    p_score, p_reasons = score_planet_for_marriage(prat["planet"])
+                    if p_score > best_prat_score:
+                        best_prat_score = p_score
+                        best_prat = {
+                            "planet": prat["planet"],
+                            "start": prat["start"],
+                            "end": prat["end"],
+                            "score": p_score,
+                            "reasons": p_reasons,
+                        }
+
+                is_current = (a_start <= today <= a_end)
+                near_future_windows.append({
+                    "mahadasha_planet": maha["planet"],
+                    "mahadasha_start": maha["start"],
+                    "mahadasha_end": maha["end"],
+                    "antardasha_planet": antar["planet"],
+                    "antardasha_start": antar["start"],
+                    "antardasha_end": antar["end"],
+                    "mahadasha_score": m_score,
+                    "antardasha_score": a_score,
+                    "combined_score": combined,
+                    "is_currently_running": is_current,
+                    "best_pratyantar": best_prat,
+                    "mahadasha_reasons": m_reasons,
+                    "antardasha_reasons": a_reasons,
+                    "strength": (
+                        "⭐ Very Strong" if combined >= 9
+                        else "✅ Strong" if combined >= 6
+                        else "🔶 Moderate" if combined >= 4
+                        else "Low"
+                    ),
+                })
+
+    # Sort: currently running first, then by combined score desc, then by start date
+    near_future_windows.sort(
+        key=lambda x: (
+            0 if x["is_currently_running"] else 1,
+            -x["combined_score"],
+            x["antardasha_start"],
+        )
+    )
+
+    # ── LAYER 3: All-time best Mahadashas (reference) ────────────────────────
+    all_time_best = []
+    for maha in all_dashas:
+        m_score, m_reasons = score_planet_for_marriage(maha["planet"])
+        if m_score >= 3:
             best_antardashas = []
             for antar in maha.get("antardasha", []):
-                a_planet = antar["planet"]
-                a_score, a_reasons = score_planet_for_marriage(a_planet)
+                a_score, a_reasons = score_planet_for_marriage(antar["planet"])
                 if a_score >= 2:
                     best_antardashas.append({
-                        "planet": a_planet,
+                        "planet": antar["planet"],
                         "start": antar["start"],
                         "end": antar["end"],
                         "score": a_score,
                         "reasons": a_reasons,
                     })
-
-            favorable_periods.append({
-                "mahadasha_planet": m_planet,
+            all_time_best.append({
+                "mahadasha_planet": maha["planet"],
                 "mahadasha_start": maha["start"],
                 "mahadasha_end": maha["end"],
                 "mahadasha_score": m_score,
                 "mahadasha_reasons": m_reasons,
-                "favorable_antardashas": sorted(best_antardashas, key=lambda x: -x["score"])[:5],
+                "top_antardashas": sorted(best_antardashas, key=lambda x: -x["score"])[:3],
             })
-
-    favorable_periods.sort(key=lambda x: -x["mahadasha_score"])
+    all_time_best.sort(key=lambda x: -x["mahadasha_score"])
 
     return {
         "7th_lord_d1": lord_7_d1,
         "dk_planet": dk_planet,
         "ul_trine_signs": list(ul_trine_signs),
-        "favorable_mahadasha_periods": favorable_periods[:5],
+
+        "current_running_period": current_period,
+
+        "near_future_marriage_windows": near_future_windows[:8],
+
+        "all_time_best_mahadashas": all_time_best[:5],
+
         "description": (
-            "Marriage timing via Dasha analysis. "
-            "The best Mahadasha/Antardasha periods are those of: "
-            "(1) 7th lord in D1, (2) 7th lord in D9, (3) Venus, (4) Dara Karaka, "
-            "(5) planets in/owning a trine from UL (1st, 3rd, 8th from UL), "
-            "(6) lagna lord. "
-            "Score ≥ 4 = strong marriage-giving period. "
-            "Scores are additive when multiple criteria are met."
+            "Marriage timing uses THREE layers: "
+            "(1) CURRENT PERIOD — is marriage possible right now? "
+            "(2) NEAR FUTURE — all Maha+Antardasha windows in the next 10 years scored for marriage. "
+            "This catches Jupiter/Venus antardashas inside a currently running Saturn/Rahu dasha. "
+            "(3) ALL-TIME BEST — strongest Mahadasha periods for reference. "
+            "Score = Maha score + Antardasha score. "
+            "≥9 = Very Strong | ≥6 = Strong | ≥4 = Moderate. "
+            "Always cross-check with Jupiter/Venus transits over natal 7th house and DK sign."
         ),
     }
 
@@ -861,11 +1030,11 @@ def analyze_marriage_timing_dasha(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def analyze_marriage_transit_triggers(
-    lagna_sign: str, planets_data: list, d1: dict
+        lagna_sign: str, planets_data: list, d1: dict
 ) -> dict:
     """
     Key natal positions that transiting planets should activate to trigger marriage.
-    
+
     Source: Narasimha Rao, Ch. 25 (Transit Analysis)
     Key transit signals:
       - Jupiter transiting natal 7th house sign
@@ -940,11 +1109,11 @@ def analyze_marriage_transit_triggers(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def analyze_divorce_indicators(
-    lagna_sign: str, planets_data: list, d1: dict, d9: dict, ul_sign: str
+        lagna_sign: str, planets_data: list, d1: dict, d9: dict, ul_sign: str
 ) -> dict:
     """
     Divorce/separation indicators from D1, UL, and D9.
-    
+
     Source: Narasimha Rao, Ch. 9 (UL), Ch. 24 (Kalachakra Dasa example),
             Exercise 36 in the book.
     """
@@ -1052,7 +1221,7 @@ def analyze_divorce_indicators(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _marriage_quality_score(
-    upapada: dict, seventh_house: dict, dk_analysis: dict, delay: dict, divorce: dict
+        upapada: dict, seventh_house: dict, dk_analysis: dict, delay: dict, divorce: dict
 ) -> dict:
     """
     Produce an overall marriage quality assessment.
@@ -1089,7 +1258,8 @@ def _marriage_quality_score(
 
     # DK strength
     if dk_analysis.get("strength") in ("exalted", "own sign"):
-        positive.append(f"DK ({dk_analysis['dara_karaka_planet']}) is {dk_analysis['strength']} — strong, admirable spouse")
+        positive.append(
+            f"DK ({dk_analysis['dara_karaka_planet']}) is {dk_analysis['strength']} — strong, admirable spouse")
     elif dk_analysis.get("strength") == "debilitated":
         negative.append(f"DK ({dk_analysis['dara_karaka_planet']}) debilitated — spouse may struggle")
 
@@ -1157,16 +1327,16 @@ def predict_marriage(final_structure: dict[str, Any]) -> dict:
         return {"error": "Ascendant not found in planets_data"}
 
     # Core analyses
-    upapada   = analyze_upapada(lagna, planets_data, d1)
+    upapada = analyze_upapada(lagna, planets_data, d1)
     dk_result = analyze_dara_karaka(planets_data, d1, d9)
-    seventh   = analyze_7th_house(lagna, planets_data, d1, d9)
-    darapada  = analyze_darapada(lagna, planets_data, upapada["ul_sign"])
-    delay     = analyze_marriage_delay(lagna, planets_data, d1, d9)
-    multiple  = analyze_multiple_marriages(lagna, planets_data, d1, upapada["ul_sign"])
-    timing    = analyze_marriage_timing_dasha(lagna, planets_data, d1, d9, upapada["ul_sign"], all_dashas)
-    transits  = analyze_marriage_transit_triggers(lagna, planets_data, d1)
-    divorce   = analyze_divorce_indicators(lagna, planets_data, d1, d9, upapada["ul_sign"])
-    quality   = _marriage_quality_score(upapada, seventh, dk_result, delay, divorce)
+    seventh = analyze_7th_house(lagna, planets_data, d1, d9)
+    darapada = analyze_darapada(lagna, planets_data, upapada["ul_sign"])
+    delay = analyze_marriage_delay(lagna, planets_data, d1, d9)
+    multiple = analyze_multiple_marriages(lagna, planets_data, d1, upapada["ul_sign"])
+    timing = analyze_marriage_timing_dasha(lagna, planets_data, d1, d9, upapada["ul_sign"], all_dashas)
+    transits = analyze_marriage_transit_triggers(lagna, planets_data, d1)
+    divorce = analyze_divorce_indicators(lagna, planets_data, d1, d9, upapada["ul_sign"])
+    quality = _marriage_quality_score(upapada, seventh, dk_result, delay, divorce)
 
     return {
         "lagna": lagna,
