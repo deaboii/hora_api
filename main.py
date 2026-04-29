@@ -1,17 +1,20 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import FastAPI, Request
+import requests
 from routes.kundli import router as kundli_router
+
+import os
+
 app = FastAPI()
 app.include_router(kundli_router)
 
-BOT_TOKEN ="8746488719:AAFx0CeX5ZEOT2y2v-QxgEV9TAZ9sKGVS10"
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 @app.get("/")
 def home():
     return {"message": "Astrology API is running"}
 
-@app.post("/webhook")
+@app.post("/webhook/astro123")
 async def telegram_webhook(req: Request):
     data = await req.json()
 
@@ -22,17 +25,16 @@ async def telegram_webhook(req: Request):
         if text == "/start":
             reply = "Welcome! Enter your birth date (YYYY-MM-DD)"
         else:
-            # Call your astrology API
             try:
                 res = requests.post(
-                    "https://your-api.onrender.com/predict",
+                    "https://hora-api-v46s.onrender.com/predict",
+                    headers={"x-api-key": "YOUR_SECRET_KEY"},
                     json={"input": text}
                 )
                 reply = res.json().get("prediction", "Couldn't generate prediction")
             except:
                 reply = "Error connecting to astrology service"
 
-        # Send reply
         requests.post(
             f"{TELEGRAM_API}/sendMessage",
             json={
