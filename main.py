@@ -10,11 +10,9 @@ app.include_router(kundli_router)
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-
 @app.get("/")
 def home():
     return {"message": "Astrology API is running"}
-
 
 @app.post("/webhook/astro123")
 async def telegram_webhook(req: Request):
@@ -34,7 +32,8 @@ async def telegram_webhook(req: Request):
                 #     json={"input": text}
                 # )
                 # reply = res.json().get("prediction", "Couldn't generate prediction")
-                reply = "hi"
+                reply = "Hii baby"
+
             except:
                 reply = "Error connecting to astrology service"
 
