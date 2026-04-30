@@ -26,12 +26,13 @@ async def telegram_webhook(req: Request):
             reply = "Welcome! Enter your birth date (YYYY-MM-DD)"
         else:
             try:
-                res = requests.post(
-                    "https://hora-api-v46s.onrender.com/predict",
-                    headers={"x-api-key": "YOUR_SECRET_KEY"},
-                    json={"input": text}
-                )
-                reply = res.json().get("prediction", "Couldn't generate prediction")
+                # res = requests.post(
+                #     "https://hora-api-v46s.onrender.com/predict",
+                #     headers={"x-api-key": "YOUR_SECRET_KEY"},
+                #     json={"input": text}
+                # )
+                # reply = res.json().get("prediction", "Couldn't generate prediction")
+                  repy = "hi"
             except:
                 reply = "Error connecting to astrology service"
 
