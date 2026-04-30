@@ -10,9 +10,11 @@ app.include_router(kundli_router)
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-@app.get("/")
+
+@app.api_route("/", methods=["GET", "HEAD"])
 def home():
     return {"message": "Astrology API is running"}
+
 
 @app.post("/webhook/astro123")
 async def telegram_webhook(req: Request):
