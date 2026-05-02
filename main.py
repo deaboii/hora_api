@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import FastAPI, Request
 import requests
 import os
@@ -401,20 +403,29 @@ async def telegram_webhook(req: Request):
 
     elif step == "city":
         send_typing(chat_id)
-        coords = city_to_latlon(text)
-        if not coords:
-            send_message(
-                chat_id,
-                "❗ Couldn't find that city. Please try again with more detail.\n"
-                "Example: `Pune, India` or `New York, USA`"
-            )
-            return {"ok": True}
 
-        lat, lon = coords
-        session["data"]["city"]  = text.title()
-        session["data"]["lat"]   = lat
-        session["data"]["lon"]   = lon
+        # Check if user shared a Telegram location
+        if "location" in message:
+            lat = message["location"]["latitude"]
+            lon = message["location"]["longitude"]
+            city_name = f"Location ({round(lat, 4)}, {round(lon, 4)})"
+        else:
+            # Fall back to city name text lookup
+            coords = city_to_latlon(text)
+            if not coords:
+                send_message(
+                    chat_id,
+                    "❗ Couldn't find that city. Please try again or share your location using the 📎 button."
+                )
+                return {"ok": True}
+            lat, lon = coords
+            city_name = text.title()
+
+        session["data"]["city"] = city_name
+        session["data"]["lat"] = lat
+        session["data"]["lon"] = lon
         session["step"] = "processing"
+        # ... rest of processing code
 
         # Confirm inputs
         d = session["data"]
