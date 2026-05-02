@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 import requests
 import os
+import re
 
 from routes.kundli import router as kundli_router
 from services.kundli_service import generate_kundli
@@ -45,11 +46,6 @@ STEP_PROMPTS = {
         "Example: `14.30` for 2:30 PM\n\n"
         "_If you don't know the exact time, use `06.00` as a rough estimate._"
     ),
-    "city": (
-        "✅ Time recorded!\n\n"
-        "🗺️ *Step 5 of 5* — Enter your *city and country of birth*\n"
-        "Example: `Mumbai, India` or `London, UK`"
-    ),
 }
 
 
@@ -60,13 +56,50 @@ STEP_PROMPTS = {
 def send_message(chat_id: int, text: str, parse_mode: str = "Markdown"):
     """Send a single Telegram message, splitting if > 4000 chars."""
     max_len = 4000
-    chunks = [text[i:i+max_len] for i in range(0, len(text), max_len)]
+    chunks = [text[i:i + max_len] for i in range(0, len(text), max_len)]
     for chunk in chunks:
         requests.post(
             f"{TELEGRAM_API}/sendMessage",
             json={"chat_id": chat_id, "text": chunk, "parse_mode": parse_mode},
             timeout=10,
         )
+
+
+def send_message_remove_keyboard(chat_id: int, text: str, parse_mode: str = "Markdown"):
+    """Send a message and remove any existing reply keyboard."""
+    max_len = 4000
+    chunks = [text[i:i + max_len] for i in range(0, len(text), max_len)]
+    for i, chunk in enumerate(chunks):
+        payload = {"chat_id": chat_id, "text": chunk, "parse_mode": parse_mode}
+        # Only remove keyboard on the first chunk
+        if i == 0:
+            payload["reply_markup"] = {"remove_keyboard": True}
+        requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
+
+
+def send_location_request(chat_id: int):
+    """Send the city step prompt with a native location-share button."""
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": (
+                "✅ Time recorded!\n\n"
+                "🗺️ *Step 5 of 5* — Share your *birth location*\n\n"
+                "👇 Tap *📍 Share My Location* below\n"
+                "_or type your city name manually, e.g._ `Mumbai, India`"
+            ),
+            "parse_mode": "Markdown",
+            "reply_markup": {
+                "keyboard": [
+                    [{"text": "📍 Share My Location", "request_location": True}]
+                ],
+                "resize_keyboard": True,
+                "one_time_keyboard": True,
+            },
+        },
+        timeout=10,
+    )
 
 
 def send_typing(chat_id: int):
@@ -181,42 +214,36 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
     if yogas:
         yoga_lines = ["✨ *YOGA ANALYSIS*\n" + "─" * 28]
 
-        # Panch Mahapurusha
         pmh = yogas.get("panch_mahapurusha_yogas", {})
         if str(pmh.get("present", "False")).lower() == "true":
             yoga_lines.append(f"🏆 *Panch Mahapurusha Yogas:* ✅ Present ({pmh.get('count', 0)} yoga(s))")
         else:
             yoga_lines.append("🏆 *Panch Mahapurusha Yogas:* ❌ Absent")
 
-        # Raj Yoga
         raj = yogas.get("raj_yoga", {})
         if str(raj.get("present", "False")).lower() == "true":
             yoga_lines.append(f"👑 *Raj Yoga:* ✅ Present — {raj.get('strength', '')} ({raj.get('count', 0)} combo(s))")
         else:
             yoga_lines.append("👑 *Raj Yoga:* ❌ Absent")
 
-        # Dhana Yoga
         dhana = yogas.get("dhana_yoga", {})
         if str(dhana.get("present", "False")).lower() == "true":
             yoga_lines.append(f"💰 *Dhana Yoga:* ✅ Present ({dhana.get('count', 0)} combo(s))")
         else:
             yoga_lines.append("💰 *Dhana Yoga:* ❌ Absent")
 
-        # Gaja Kesari
         gk = yogas.get("gaja_kesari_yoga", {})
         if gk.get("present") is True or str(gk.get("present", "False")).lower() == "true":
             yoga_lines.append(f"🐘 *Gaja Kesari Yoga:* ✅ Present — {gk.get('jupiter_strength', '')}")
         else:
             yoga_lines.append("🐘 *Gaja Kesari Yoga:* ❌ Absent")
 
-        # Kemdrum
         kem = yogas.get("kemdrum_yoga", {})
         if str(kem.get("present", "False")).lower() == "true":
             yoga_lines.append("🌑 *Kemdrum Yoga:* ⚠️ Present — Moon is isolated")
         else:
             yoga_lines.append("🌑 *Kemdrum Yoga:* ✅ Not Present")
 
-        # Viparita Raja
         vip = yogas.get("viparita_raja_yoga", {})
         if str(vip.get("present", "False")).lower() == "true":
             yoga_lines.append(f"🔄 *Viparita Raja Yoga:* ✅ Present ({vip.get('count', 0)} combo(s))")
@@ -236,12 +263,10 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
         marriage_lines = ["💍 *MARRIAGE ANALYSIS*\n" + "─" * 28]
         marriage_lines.append(f"📊 *Overall:* {quality.get('overall_verdict', '—')}")
 
-        # Delay
         delay_severity = delay.get("severity", "None")
         if delay_severity != "None":
             marriage_lines.append(f"⏳ *Delay Indicator:* {delay_severity}")
 
-        # Current dasha marriage score
         if current_window:
             marriage_lines.append(
                 f"\n🗓️ *Current Period for Marriage:*\n"
@@ -250,7 +275,6 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
                 f"Antar: {current_window.get('antardasha', {}).get('planet', '—')}"
             )
 
-        # Near future windows (top 2)
         windows = timing.get("near_future_marriage_windows", [])
         if windows:
             marriage_lines.append("\n📅 *Best Upcoming Marriage Windows:*")
@@ -282,7 +306,10 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
         if sade.get("active"):
             transit_lines.append(f"\n🪐 *SADE SATI ACTIVE* — {sade.get('phase', '')}")
         if dhaiya.get("active"):
-            transit_lines.append(f"🪐 *DHAIYA ACTIVE* — Saturn in {saturn_sp.get('dhaiya', {}).get('saturn_house_from_moon', '—')}th from Moon")
+            transit_lines.append(
+                f"🪐 *DHAIYA ACTIVE* — Saturn in "
+                f"{saturn_sp.get('dhaiya', {}).get('saturn_house_from_moon', '—')}th from Moon"
+            )
 
         if notable:
             transit_lines.append("\n🔔 *Notable Transits:*")
@@ -383,8 +410,6 @@ async def telegram_webhook(req: Request):
         send_message(chat_id, STEP_PROMPTS["dob"])
 
     elif step == "dob":
-        # Validate DD-MM-YYYY
-        import re
         if not re.match(r"^\d{2}-\d{2}-\d{4}$", text):
             send_message(chat_id, "❗ Invalid format. Please use `DD-MM-YYYY`.\nExample: `15-08-1995`")
             return {"ok": True}
@@ -393,56 +418,61 @@ async def telegram_webhook(req: Request):
         send_message(chat_id, STEP_PROMPTS["time"])
 
     elif step == "time":
-        import re
         if not re.match(r"^\d{1,2}\.\d{2}$", text):
             send_message(chat_id, "❗ Invalid format. Please use `HH.MM`.\nExample: `14.30`")
             return {"ok": True}
         session["data"]["birth_time"] = text
         session["step"] = "city"
-        send_message(chat_id, STEP_PROMPTS["city"])
+        # Send location button prompt
+        send_location_request(chat_id)
 
     elif step == "city":
         send_typing(chat_id)
 
-        # Check if user shared a Telegram location
+        # ── User tapped the location button ──────────────────
         if "location" in message:
             lat = message["location"]["latitude"]
             lon = message["location"]["longitude"]
-            city_name = f"Location ({round(lat, 4)}, {round(lon, 4)})"
+            city_name = f"Shared Location ({round(lat, 4)}°, {round(lon, 4)}°)"
+
+        # ── User typed a city name manually ──────────────────
         else:
-            # Fall back to city name text lookup
+            if not text:
+                send_location_request(chat_id)
+                return {"ok": True}
             coords = city_to_latlon(text)
             if not coords:
                 send_message(
                     chat_id,
-                    "❗ Couldn't find that city. Please try again or share your location using the 📎 button."
+                    "❗ Couldn't find that city. Please try again with more detail.\n"
+                    "Example: `Pune, India` or `New York, USA`\n\n"
+                    "_Or tap the 📍 button to share your location directly._"
                 )
                 return {"ok": True}
             lat, lon = coords
             city_name = text.title()
 
         session["data"]["city"] = city_name
-        session["data"]["lat"] = lat
-        session["data"]["lon"] = lon
+        session["data"]["lat"]  = lat
+        session["data"]["lon"]  = lon
         session["step"] = "processing"
-        # ... rest of processing code
 
-        # Confirm inputs
+        # Confirm inputs — also removes the location keyboard
         d = session["data"]
-        send_message(
+        send_message_remove_keyboard(
             chat_id,
             f"✅ *Details Confirmed:*\n\n"
             f"👤 Name: {d['name']}\n"
             f"👤 Gender: {d['gender']}\n"
             f"📅 DOB: {d['dob']}\n"
             f"⏰ Time: {d['birth_time']} IST\n"
-            f"📍 City: {d['city']}\n"
+            f"📍 Location: {d['city']}\n"
             f"🌐 Coordinates: {round(lat, 4)}°N, {round(lon, 4)}°E\n\n"
             f"⏳ _Calculating your Kundli... please wait_"
         )
         send_typing(chat_id)
 
-        # ── Call Kundli API ──────────────────────────────────
+        # ── Call Kundli engine ───────────────────────────────
         try:
             result = generate_kundli(
                 name       = d["name"],
@@ -452,8 +482,8 @@ async def telegram_webhook(req: Request):
                 lon        = d["lon"],
             )
 
-            messages = fmt_kundli(result, d["name"], d["gender"])
-            for msg in messages:
+            msgs = fmt_kundli(result, d["name"], d["gender"])
+            for msg in msgs:
                 send_message(chat_id, msg)
 
         except Exception as e:
