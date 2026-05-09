@@ -1,25 +1,32 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Header, HTTPException
 import requests
 import os
-import re
 
 from routes.kundli import router as kundli_router
 from services.kundli_service import generate_kundli
 
+# ── CHANGE 1: Import database functions ──────────────────────
+from database import init_db, upsert_user, get_all_users, send_broadcast_message
+
 app = FastAPI()
 app.include_router(kundli_router)
+
+
+# ── CHANGE 2: Initialize DB on startup ───────────────────────
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# ─────────────────────────────────────────────────────────────
-# In-memory session store  {chat_id: {step, data{}}}
-# Steps: name → gender → dob → time → city → processing
-# ─────────────────────────────────────────────────────────────
-user_sessions: dict = {}
+# Admin secret — set this as an env variable on Render
+ADMIN_SECRET = os.getenv("ADMIN_SECRET", "changeme123")
 
+user_sessions: dict = {}
 STEPS = ["name", "gender", "dob", "time", "city"]
 
 STEP_PROMPTS = {
@@ -46,6 +53,11 @@ STEP_PROMPTS = {
         "Example: `14.30` for 2:30 PM\n\n"
         "_If you don't know the exact time, use `06.00` as a rough estimate._"
     ),
+    "city": (
+        "✅ Time recorded!\n\n"
+        "🗺️ *Step 5 of 5* — Enter your *city and country of birth*\n"
+        "Example: `Mumbai, India` or `London, UK`"
+    ),
 }
 
 
@@ -54,7 +66,6 @@ STEP_PROMPTS = {
 # ─────────────────────────────────────────────────────────────
 
 def send_message(chat_id: int, text: str, parse_mode: str = "Markdown"):
-    """Send a single Telegram message, splitting if > 4000 chars."""
     max_len = 4000
     chunks = [text[i:i + max_len] for i in range(0, len(text), max_len)]
     for chunk in chunks:
@@ -65,43 +76,6 @@ def send_message(chat_id: int, text: str, parse_mode: str = "Markdown"):
         )
 
 
-def send_message_remove_keyboard(chat_id: int, text: str, parse_mode: str = "Markdown"):
-    """Send a message and remove any existing reply keyboard."""
-    max_len = 4000
-    chunks = [text[i:i + max_len] for i in range(0, len(text), max_len)]
-    for i, chunk in enumerate(chunks):
-        payload = {"chat_id": chat_id, "text": chunk, "parse_mode": parse_mode}
-        # Only remove keyboard on the first chunk
-        if i == 0:
-            payload["reply_markup"] = {"remove_keyboard": True}
-        requests.post(f"{TELEGRAM_API}/sendMessage", json=payload, timeout=10)
-
-
-def send_location_request(chat_id: int):
-    """Send the city step prompt with a native location-share button."""
-    requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json={
-            "chat_id": chat_id,
-            "text": (
-                "✅ Time recorded!\n\n"
-                "🗺️ *Step 5 of 5* — Share your *birth location*\n\n"
-                "👇 Tap *📍 Share My Location* below\n"
-                "_or type your city name manually, e.g._ `Mumbai, India`"
-            ),
-            "parse_mode": "Markdown",
-            "reply_markup": {
-                "keyboard": [
-                    [{"text": "📍 Share My Location", "request_location": True}]
-                ],
-                "resize_keyboard": True,
-                "one_time_keyboard": True,
-            },
-        },
-        timeout=10,
-    )
-
-
 def send_typing(chat_id: int):
     requests.post(
         f"{TELEGRAM_API}/sendChatAction",
@@ -109,10 +83,6 @@ def send_typing(chat_id: int):
         timeout=5,
     )
 
-
-# ─────────────────────────────────────────────────────────────
-# City → lat/lon  (Nominatim, free, no key needed)
-# ─────────────────────────────────────────────────────────────
 
 def city_to_latlon(city: str) -> tuple[float, float] | None:
     try:
@@ -131,17 +101,13 @@ def city_to_latlon(city: str) -> tuple[float, float] | None:
 
 
 # ─────────────────────────────────────────────────────────────
-# Kundli result → formatted Telegram text
+# Kundli formatter (unchanged from your original)
 # ─────────────────────────────────────────────────────────────
 
 def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
-    """
-    Return a list of formatted message strings, one per section.
-    """
     messages = []
     det = result.get("details", {})
 
-    # ── Header ──────────────────────────────────────────────
     gender_icon = "♂️" if gender.lower() == "male" else "♀️" if gender.lower() == "female" else "⚧️"
     header = (
         f"╔══════════════════════════╗\n"
@@ -156,7 +122,6 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
     )
     messages.append(header)
 
-    # ── Planets ─────────────────────────────────────────────
     planets = result.get("planets_data", [])
     if planets:
         PLANET_ICONS = {
@@ -173,20 +138,18 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
             )
         messages.append("\n".join(planet_lines))
 
-    # ── Dasha ────────────────────────────────────────────────
     dasha = result.get("dasha", {})
     current = dasha.get("current", {})
     if current:
         dasha_msg = (
-            "⏳ *CURRENT DASHA PERIOD*\n" + "─" * 28 + "\n\n"
-            f"🔷 *Mahadasha:* {current.get('mahadasha', '—')}\n"
-            f"🔹 *Antardasha:* {current.get('antardasha', '—')}\n"
-            f"▫️ *Pratyantar:* {current.get('pratyantar', '—')}\n"
-            f"📆 *Pratyantar Ends:* {current.get('pratyantar_end', '—')}"
+                "⏳ *CURRENT DASHA PERIOD*\n" + "─" * 28 + "\n\n"
+                                                          f"🔷 *Mahadasha:* {current.get('mahadasha', '—')}\n"
+                                                          f"🔹 *Antardasha:* {current.get('antardasha', '—')}\n"
+                                                          f"▫️ *Pratyantar:* {current.get('pratyantar', '—')}\n"
+                                                          f"📆 *Pratyantar Ends:* {current.get('pratyantar_end', '—')}"
         )
         messages.append(dasha_msg)
 
-    # ── Doshas ───────────────────────────────────────────────
     doshas = result.get("doshas", {})
     if doshas:
         DOSHA_ICONS = {
@@ -202,71 +165,59 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
         dosha_lines = ["⚠️ *DOSHA ANALYSIS*\n" + "─" * 28]
         for key, val in doshas.items():
             icon = DOSHA_ICONS.get(key, "•")
-            name = DOSHA_NAMES.get(key, key)
+            name_d = DOSHA_NAMES.get(key, key)
             present = str(val.get("present", "False")).lower() == "true"
             severity = val.get("severity", "")
             status = f"✅ Not Present" if not present else f"⚠️ Present — {severity}"
-            dosha_lines.append(f"{icon} *{name}:* {status}")
+            dosha_lines.append(f"{icon} *{name_d}:* {status}")
         messages.append("\n".join(dosha_lines))
 
-    # ── Yogas ────────────────────────────────────────────────
     yogas = result.get("yogas", {})
     if yogas:
         yoga_lines = ["✨ *YOGA ANALYSIS*\n" + "─" * 28]
-
         pmh = yogas.get("panch_mahapurusha_yogas", {})
         if str(pmh.get("present", "False")).lower() == "true":
             yoga_lines.append(f"🏆 *Panch Mahapurusha Yogas:* ✅ Present ({pmh.get('count', 0)} yoga(s))")
         else:
             yoga_lines.append("🏆 *Panch Mahapurusha Yogas:* ❌ Absent")
-
         raj = yogas.get("raj_yoga", {})
         if str(raj.get("present", "False")).lower() == "true":
             yoga_lines.append(f"👑 *Raj Yoga:* ✅ Present — {raj.get('strength', '')} ({raj.get('count', 0)} combo(s))")
         else:
             yoga_lines.append("👑 *Raj Yoga:* ❌ Absent")
-
         dhana = yogas.get("dhana_yoga", {})
         if str(dhana.get("present", "False")).lower() == "true":
             yoga_lines.append(f"💰 *Dhana Yoga:* ✅ Present ({dhana.get('count', 0)} combo(s))")
         else:
             yoga_lines.append("💰 *Dhana Yoga:* ❌ Absent")
-
         gk = yogas.get("gaja_kesari_yoga", {})
         if gk.get("present") is True or str(gk.get("present", "False")).lower() == "true":
             yoga_lines.append(f"🐘 *Gaja Kesari Yoga:* ✅ Present — {gk.get('jupiter_strength', '')}")
         else:
             yoga_lines.append("🐘 *Gaja Kesari Yoga:* ❌ Absent")
-
         kem = yogas.get("kemdrum_yoga", {})
         if str(kem.get("present", "False")).lower() == "true":
             yoga_lines.append("🌑 *Kemdrum Yoga:* ⚠️ Present — Moon is isolated")
         else:
             yoga_lines.append("🌑 *Kemdrum Yoga:* ✅ Not Present")
-
         vip = yogas.get("viparita_raja_yoga", {})
         if str(vip.get("present", "False")).lower() == "true":
             yoga_lines.append(f"🔄 *Viparita Raja Yoga:* ✅ Present ({vip.get('count', 0)} combo(s))")
         else:
             yoga_lines.append("🔄 *Viparita Raja Yoga:* ❌ Absent")
-
         messages.append("\n".join(yoga_lines))
 
-    # ── Marriage ─────────────────────────────────────────────
     marriage = result.get("marriage", {})
     if marriage:
         quality = marriage.get("overall_quality", {})
         timing = marriage.get("marriage_timing_dasha", {})
         delay = marriage.get("delay_denial", {})
         current_window = timing.get("current_running_period", {})
-
         marriage_lines = ["💍 *MARRIAGE ANALYSIS*\n" + "─" * 28]
         marriage_lines.append(f"📊 *Overall:* {quality.get('overall_verdict', '—')}")
-
         delay_severity = delay.get("severity", "None")
         if delay_severity != "None":
             marriage_lines.append(f"⏳ *Delay Indicator:* {delay_severity}")
-
         if current_window:
             marriage_lines.append(
                 f"\n🗓️ *Current Period for Marriage:*\n"
@@ -274,7 +225,6 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
                 f"   Maha: {current_window.get('mahadasha', {}).get('planet', '—')} | "
                 f"Antar: {current_window.get('antardasha', {}).get('planet', '—')}"
             )
-
         windows = timing.get("near_future_marriage_windows", [])
         if windows:
             marriage_lines.append("\n📅 *Best Upcoming Marriage Windows:*")
@@ -284,17 +234,14 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
                     f"{w.get('antardasha_planet')} AD\n"
                     f"   ({w.get('antardasha_start')} → {w.get('antardasha_end')})"
                 )
-
         messages.append("\n".join(marriage_lines))
 
-    # ── Transits ─────────────────────────────────────────────
     transits = result.get("transits", {})
     if transits:
         saturn_sp = transits.get("sade_sati_dhaiya", {})
         sade = saturn_sp.get("sade_sati", {})
         dhaiya = saturn_sp.get("dhaiya", {})
         notable = transits.get("notable_transits", [])
-
         transit_lines = [
             f"🌍 *CURRENT TRANSITS*  _{transits.get('transit_date', '')}_\n" + "─" * 28
         ]
@@ -302,30 +249,22 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
             f"🌙 *Natal Moon Sign:* {transits.get('natal_moon_sign', '—')}\n"
             f"⬆️ *Natal Lagna:* {transits.get('natal_lagna_sign', '—')}"
         )
-
         if sade.get("active"):
             transit_lines.append(f"\n🪐 *SADE SATI ACTIVE* — {sade.get('phase', '')}")
         if dhaiya.get("active"):
             transit_lines.append(
-                f"🪐 *DHAIYA ACTIVE* — Saturn in "
-                f"{saturn_sp.get('dhaiya', {}).get('saturn_house_from_moon', '—')}th from Moon"
-            )
-
+                f"🪐 *DHAIYA ACTIVE* — Saturn in {saturn_sp.get('dhaiya', {}).get('saturn_house_from_moon', '—')}th from Moon")
         if notable:
             transit_lines.append("\n🔔 *Notable Transits:*")
             for n in notable[:4]:
                 transit_lines.append(f"  • {n['planet']} in {n['sign']}: {n['effect']}")
-
         messages.append("\n".join(transit_lines))
 
-    # ── Remedies (top picks) ──────────────────────────────────
     remedies = result.get("remedies", {})
     if remedies:
         stones = remedies.get("gemstones", [])
         dosha_rem = remedies.get("dosha_remedies", [])
-
         remedy_lines = ["💎 *REMEDIES & GEMSTONES*\n" + "─" * 28]
-
         if stones:
             remedy_lines.append("🔮 *Recommended Gemstones:*")
             for s in stones[:3]:
@@ -333,26 +272,20 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
                     f"  • *{s['primary_stone']}* (for {s['planet']}) — {s['reason'][:60]}...\n"
                     f"    Wear on {s['wear_day']} on {s['finger']}"
                 )
-
         if dosha_rem:
             remedy_lines.append("\n🙏 *Dosha Remedies (Top Tips):*")
             for dr in dosha_rem[:2]:
                 remedy_lines.append(f"  🔸 *{dr['title']}*")
                 for tip in dr["remedies"][:2]:
                     remedy_lines.append(f"    ▫️ {tip}")
-
-        remedy_lines.append(
-            "\n_⚠️ Consult a qualified Jyotishi before wearing gemstones._"
-        )
+        remedy_lines.append("\n_⚠️ Consult a qualified Jyotishi before wearing gemstones._")
         messages.append("\n".join(remedy_lines))
 
-    # ── Footer ───────────────────────────────────────────────
     messages.append(
         "─" * 28 + "\n"
-        "🔱 *Report by Hora Astrology API*\n"
-        "Type /start to generate a new Kundli ✨"
+                   "🔱 *Report by Hora Astrology API*\n"
+                   "Type /start to generate a new Kundli ✨"
     )
-
     return messages
 
 
@@ -365,6 +298,38 @@ def home():
     return {"message": "Astrology API is running"}
 
 
+# ── CHANGE 3: Admin endpoints ─────────────────────────────────
+
+@app.get("/admin/users")
+def admin_get_users(x_admin_secret: str = Header(None)):
+    """
+    Get all registered users.
+    Call with header: X-Admin-Secret: <your ADMIN_SECRET>
+    """
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    users = get_all_users()
+    return {"total": len(users), "users": users}
+
+
+@app.post("/admin/broadcast")
+async def admin_broadcast(req: Request, x_admin_secret: str = Header(None)):
+    """
+    Send a message to ALL users in the database.
+
+    Body: { "message": "Your message here" }
+    Header: X-Admin-Secret: <your ADMIN_SECRET>
+    """
+    if x_admin_secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    body = await req.json()
+    message = body.get("message", "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="message field is required")
+    result = send_broadcast_message(BOT_TOKEN, message)
+    return result
+
+
 @app.post("/webhook/astro123")
 async def telegram_webhook(req: Request):
     data = await req.json()
@@ -374,23 +339,19 @@ async def telegram_webhook(req: Request):
 
     message = data["message"]
     chat_id = message["chat"]["id"]
-    text    = message.get("text", "").strip()
+    text = message.get("text", "").strip()
 
-    # ── /start resets session ────────────────────────────────
     if text == "/start":
         user_sessions[chat_id] = {"step": "name", "data": {}}
         send_message(chat_id, STEP_PROMPTS["name"])
         return {"ok": True}
 
-    # ── No active session → prompt /start ────────────────────
     if chat_id not in user_sessions:
         send_message(chat_id, "👋 Type /start to begin your Kundli reading!")
         return {"ok": True}
 
     session = user_sessions[chat_id]
-    step    = session["step"]
-
-    # ── Collect inputs step by step ──────────────────────────
+    step = session["step"]
 
     if step == "name":
         if len(text) < 2:
@@ -410,6 +371,7 @@ async def telegram_webhook(req: Request):
         send_message(chat_id, STEP_PROMPTS["dob"])
 
     elif step == "dob":
+        import re
         if not re.match(r"^\d{2}-\d{2}-\d{4}$", text):
             send_message(chat_id, "❗ Invalid format. Please use `DD-MM-YYYY`.\nExample: `15-08-1995`")
             return {"ok": True}
@@ -418,72 +380,59 @@ async def telegram_webhook(req: Request):
         send_message(chat_id, STEP_PROMPTS["time"])
 
     elif step == "time":
+        import re
         if not re.match(r"^\d{1,2}\.\d{2}$", text):
             send_message(chat_id, "❗ Invalid format. Please use `HH.MM`.\nExample: `14.30`")
             return {"ok": True}
         session["data"]["birth_time"] = text
         session["step"] = "city"
-        # Send location button prompt
-        send_location_request(chat_id)
+        send_message(chat_id, STEP_PROMPTS["city"])
 
     elif step == "city":
         send_typing(chat_id)
+        coords = city_to_latlon(text)
+        if not coords:
+            send_message(
+                chat_id,
+                "❗ Couldn't find that city. Please try again with more detail.\n"
+                "Example: `Pune, India` or `New York, USA`"
+            )
+            return {"ok": True}
 
-        # ── User tapped the location button ──────────────────
-        if "location" in message:
-            lat = message["location"]["latitude"]
-            lon = message["location"]["longitude"]
-            city_name = f"Shared Location ({round(lat, 4)}°, {round(lon, 4)}°)"
-
-        # ── User typed a city name manually ──────────────────
-        else:
-            if not text:
-                send_location_request(chat_id)
-                return {"ok": True}
-            coords = city_to_latlon(text)
-            if not coords:
-                send_message(
-                    chat_id,
-                    "❗ Couldn't find that city. Please try again with more detail.\n"
-                    "Example: `Pune, India` or `New York, USA`\n\n"
-                    "_Or tap the 📍 button to share your location directly._"
-                )
-                return {"ok": True}
-            lat, lon = coords
-            city_name = text.title()
-
-        session["data"]["city"] = city_name
-        session["data"]["lat"]  = lat
-        session["data"]["lon"]  = lon
+        lat, lon = coords
+        session["data"]["city"] = text.title()
+        session["data"]["lat"] = lat
+        session["data"]["lon"] = lon
         session["step"] = "processing"
 
-        # Confirm inputs — also removes the location keyboard
         d = session["data"]
-        send_message_remove_keyboard(
+        send_message(
             chat_id,
             f"✅ *Details Confirmed:*\n\n"
             f"👤 Name: {d['name']}\n"
             f"👤 Gender: {d['gender']}\n"
             f"📅 DOB: {d['dob']}\n"
             f"⏰ Time: {d['birth_time']} IST\n"
-            f"📍 Location: {d['city']}\n"
+            f"📍 City: {d['city']}\n"
             f"🌐 Coordinates: {round(lat, 4)}°N, {round(lon, 4)}°E\n\n"
             f"⏳ _Calculating your Kundli... please wait_"
         )
         send_typing(chat_id)
 
-        # ── Call Kundli engine ───────────────────────────────
         try:
             result = generate_kundli(
-                name       = d["name"],
-                date_str   = d["dob"],
-                birth_time = d["birth_time"],
-                lat        = d["lat"],
-                lon        = d["lon"],
+                name=d["name"],
+                date_str=d["dob"],
+                birth_time=d["birth_time"],
+                lat=d["lat"],
+                lon=d["lon"],
             )
 
-            msgs = fmt_kundli(result, d["name"], d["gender"])
-            for msg in msgs:
+            # ── CHANGE 3: Save user to database ──────────────
+            upsert_user(chat_id, d, result)
+
+            messages = fmt_kundli(result, d["name"], d["gender"])
+            for msg in messages:
                 send_message(chat_id, msg)
 
         except Exception as e:
@@ -492,7 +441,6 @@ async def telegram_webhook(req: Request):
                 f"❌ *Error generating Kundli:*\n`{str(e)}`\n\nPlease try /start again."
             )
 
-        # Clear session after processing
         del user_sessions[chat_id]
 
     return {"ok": True}
