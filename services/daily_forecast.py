@@ -1,15 +1,22 @@
 """
-daily_forecast.py  ─ Hora Rashifal Engine v2
+daily_forecast.py  ─ Hora Rashifal Engine v3
 =============================================
-Signal-based daily forecast engine.
+Signal-based daily forecast engine with TRUE daily uniqueness.
+
+v3 improvements (vs v2):
+  - Tithi-based per-topic flavour (changes every ~24h)
+  - Transiting Moon's nakshatra-based per-topic flavour (changes every ~24h)
+  - Day-of-week rotation between Maha/Antardasha lord colouring
+  - Daily-seed rotation for "quiet day" fallback messages
+  - Natal nakshatra line rotates on/off every other day
+  - Moon degree-of-sign "intensity" modifier (early/middle/late)
 
 Architecture:
   SIGNALS[(planet, house_from_moon)] -> {topic: (weight, text)}
   Each topic collects ALL matching signals for today's transits,
-  combines positives + negatives, and produces a final paragraph.
-
-  5 variants x 12 houses x 8 planets x 11 topics = 5,280 base combinations
-  + 27 nakshatra modifiers + paksha modifier + mahadasha colour = never repeats.
+  combines positives + negatives, layers in daily-changing flavour
+  (tithi, transit Moon nakshatra, dasha lord, moon degree zone),
+  and produces a final paragraph that is materially different every day.
 
 Topics:
   family | married_life | love | health | education |
@@ -640,6 +647,7 @@ SIGNALS: dict[tuple[str, int], dict[str, tuple[int, str]]] = {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Nakshatra modifier — adds flavour sentence per topic
+# Used for BOTH natal Moon nakshatra (slow) AND transit Moon nakshatra (daily!)
 # ─────────────────────────────────────────────────────────────────────────────
 
 NAKSHATRA_FLAVOUR: dict[str, dict[str, str]] = {
@@ -673,6 +681,93 @@ NAKSHATRA_FLAVOUR: dict[str, dict[str, str]] = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Tithi modifier — CHANGES EVERY ~24 HOURS (key driver of daily uniqueness)
+# ─────────────────────────────────────────────────────────────────────────────
+
+TITHI_FLAVOUR: dict[str, dict[str, str]] = {
+    "Pratipada": {
+        "job":       "Pratipada favours fresh starts — a strong day to kick off new projects.",
+        "health":    "A light, new-beginning tithi — perfect for starting a fitness or diet routine.",
+        "business":  "New ventures launched on Pratipada gain durable, forward momentum.",
+    },
+    "Dwitiya": {
+        "family":    "Dwitiya supports nurturing bonds — reach out to a family member you've been neglecting.",
+        "finances":  "Steady, conservative money moves are favoured under Dwitiya today.",
+        "love":      "Gentle, growing affection — a tender tithi for early-stage romance.",
+    },
+    "Tritiya": {
+        "sports":    "Tritiya brings competitive vigour — push hard in any physical contest today.",
+        "business":  "Bold sales moves and outreach pitches land well under Tritiya.",
+        "education": "Active, restless intelligence — best used on challenging problems today.",
+    },
+    "Chaturthi": {
+        "health":    "Chaturthi is ruled by Ganesha — obstacles dissolve, but avoid heavy meals today.",
+        "education": "Mental clarity for problem-solving peaks under Chaturthi.",
+        "job":       "A tithi for removing obstacles — clear that one blocker that has been delaying you.",
+    },
+    "Panchami": {
+        "education": "Panchami is excellent for learning — knowledge sticks deeply today.",
+        "love":      "Playful, charming romantic energy under Panchami — keep things light.",
+        "finances":  "A good day for small, smart investments and money-related research.",
+    },
+    "Shashthi": {
+        "job":       "Shashthi favours discipline and routine — clear backlogs and finish pending tasks.",
+        "health":    "Recovery and healing are strongly supported under Shashthi today.",
+        "sports":    "Endurance training works well — Shashthi rewards steady, repeated effort.",
+    },
+    "Saptami": {
+        "business":  "Saptami supports trade, travel, and dealings — a productive commercial day.",
+        "politics":  "Public visibility and social influence are favourable today.",
+        "job":       "Travel and movement bring opportunity today — say yes to that meeting.",
+    },
+    "Ashtami": {
+        "health":    "Ashtami can be intense — avoid risky physical activity and very rich food.",
+        "finances":  "Avoid major financial commitments on Ashtami — wait a day if you can.",
+        "love":      "Emotionally charged tithi — handle romantic conversations with extra care.",
+    },
+    "Navami": {
+        "family":    "Navami strengthens family unity — a great day for family gatherings.",
+        "education": "Devotional, spiritual, and philosophical study flourishes under Navami.",
+        "arts":      "Creative work touched by devotion or higher purpose excels today.",
+    },
+    "Dashami": {
+        "job":       "Dashami brings stability and completion — finish what you started.",
+        "business":  "Closing deals and signing agreements is very well-timed today.",
+        "married_life": "A stabilising tithi for marriage — small commitments deepen the bond.",
+    },
+    "Ekadashi": {
+        "health":    "Ekadashi is sacred for fasting — light food and prayer cleanse body and mind.",
+        "education": "Spiritual and philosophical study is exceptionally rewarding today.",
+        "arts":      "A meditative, refined creative tithi — subtle art over grand statements.",
+    },
+    "Dwadashi": {
+        "family":    "Dwadashi after Ekadashi brings renewed family warmth and gratitude.",
+        "finances":  "A balanced day for moderate financial planning — review more than act.",
+        "health":    "Break your fast gently — Dwadashi rewards moderation in eating.",
+    },
+    "Trayodashi": {
+        "love":      "Trayodashi (Pradosh) carries passionate, intense energy — romance is heightened.",
+        "arts":      "Creative expression is bold and dramatic today — let the work be intense.",
+        "politics":  "A powerful tithi for public action — bold statements resonate strongly.",
+    },
+    "Chaturdashi": {
+        "health":    "Chaturdashi can stir restlessness — practise grounding and avoid arguments.",
+        "job":       "A turbulent tithi — avoid major workplace confrontations today.",
+        "finances":  "Defer speculative or risky financial moves — wait one more day.",
+    },
+    "Purnima": {
+        "love":      "Purnima — the full moon — amplifies all romantic feeling. Magical for love.",
+        "arts":      "Creativity peaks under the full moon's light — produce your best work tonight.",
+        "family":    "Family gatherings under the full moon are deeply auspicious and bonding.",
+    },
+    "Amavasya": {
+        "health":    "Amavasya — new moon — energy is low; rest deeply and avoid new ventures.",
+        "family":    "Honour ancestors today; quiet, inward family time is favoured.",
+        "finances":  "Defer all major financial decisions to a future tithi — Amavasya is for reflection.",
+    },
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Dasha colour modifier
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -695,6 +790,60 @@ DASHA_COLOUR: dict[str, dict[str, str]] = {
 PAKSHA_NOTES = {
     "Shukla":  "🌕 Shukla Paksha (waxing Moon) — energy builds, new beginnings are auspicious, emotions rise.",
     "Krishna": "🌑 Krishna Paksha (waning Moon) — introspection, completion, releasing what no longer serves you.",
+}
+
+# Paksha-flavoured per-topic micro-lines (adds extra daily-level variety since
+# paksha swaps every ~15 days and pairs differently with each topic).
+PAKSHA_TOPIC_LINE: dict[str, dict[str, str]] = {
+    "Shukla": {
+        "job":      "Waxing Moon builds momentum — push initiatives forward today.",
+        "business": "Shukla Paksha favours expansion and new client outreach.",
+        "love":     "Growing Moon nurtures fresh attraction and new romantic possibilities.",
+        "finances": "An auspicious paksha for starting investments and savings plans.",
+        "education":"Building knowledge under Shukla Paksha sticks well — start new topics.",
+    },
+    "Krishna": {
+        "job":      "Waning Moon favours closing out work — finish, file, archive, and tidy.",
+        "business": "Krishna Paksha favours collections, reviews, and pruning underperformers.",
+        "love":     "Reflective Moon — focus on understanding your partner rather than pursuing.",
+        "finances": "A paksha for reviewing accounts and clearing debts rather than expanding.",
+        "education":"Revision over new material — Krishna Paksha consolidates learning.",
+    },
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Moon-degree-in-sign "intensity" — early/middle/late changes within 2.5 days
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _moon_intensity_label(degree_in_sign: float) -> str:
+    """Return 'early', 'middle', or 'late' based on Moon's degree in its current sign."""
+    if degree_in_sign < 10.0:
+        return "early"
+    elif degree_in_sign < 20.0:
+        return "middle"
+    else:
+        return "late"
+
+
+MOON_INTENSITY_LINE: dict[str, dict[str, str]] = {
+    "early": {
+        "family":    "Moon in early degrees of its sign — emotional energy is fresh and outward-facing.",
+        "love":      "Early-degree Moon brings new sparks and curious romantic energy.",
+        "health":    "Early-degree Moon: vitality is fresh — a good window to begin a new health habit.",
+        "job":       "Early-degree Moon supports kick-off energy — start the day's biggest task first.",
+    },
+    "middle": {
+        "family":    "Mid-degree Moon brings settled, balanced emotional warmth at home.",
+        "love":      "Mid-degree Moon supports stable, deepening romantic conversation.",
+        "health":    "Mid-degree Moon: steady physical energy — push through your routine confidently.",
+        "job":       "Mid-degree Moon is the productivity sweet-spot — execute the plan today.",
+    },
+    "late": {
+        "family":    "Late-degree Moon — emotions are transitioning; be patient with family mood swings.",
+        "love":      "Late-degree Moon: prepare for tomorrow's shift; today is for closure conversations.",
+        "health":    "Late-degree Moon — energy is winding down; prioritise rest tonight.",
+        "job":       "Late-degree Moon favours wrapping up rather than starting fresh.",
+    },
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -788,6 +937,16 @@ DO_DONT_SIGNALS: dict[tuple[str, int], tuple[str, str]] = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Daily seed — changes every day, used to rotate sentences and break ties
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _daily_seed() -> int:
+    """Integer that changes every calendar day (YYYYMMDD)."""
+    now = datetime.now()
+    return now.year * 10000 + now.month * 100 + now.day
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Ephemeris helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -868,11 +1027,24 @@ def _build_topic_paragraph(
     moon_nakshatra: str,
     dasha_lord: str,
     antar_lord: str,
+    tithi_name: str,
+    paksha: str,
+    seed: int,
 ) -> tuple[str, str]:
+    """
+    Build the per-topic paragraph.
+
+    Daily-changing inputs (so output differs each day):
+      - tithi_name / paksha      → changes every ~24h
+      - transits["Moon"]         → changes house every ~2.5d, nakshatra ~daily
+      - seed                     → changes every calendar day
+      - weekday rotation         → 7-day cycle on dasha lord choice
+    """
     positives: list[str] = []
     negatives: list[str] = []
     total_weight = 0
 
+    # ── Base planet signals ─────────────────────────────────────────────────
     for planet in PLANET_LOOP:
         if planet not in transits:
             continue
@@ -899,20 +1071,52 @@ def _build_topic_paragraph(
         else:
             negatives.append(text)
 
-    # Nakshatra flavour
-    nak_flavours = NAKSHATRA_FLAVOUR.get(moon_nakshatra, {})
-    if topic in nak_flavours:
-        positives.append(f"_{nak_flavours[topic]}_")
+    # ── Transit Moon's nakshatra flavour for THIS topic (DAILY CHANGE) ──────
+    transit_moon_nak = transits.get("Moon", {}).get("nakshatra", "")
+    transit_nak_flavours = NAKSHATRA_FLAVOUR.get(transit_moon_nak, {})
+    if topic in transit_nak_flavours:
+        positives.append(f"_Today's Moon in {transit_moon_nak}: {transit_nak_flavours[topic]}_")
 
-    # Dasha colour
-    for lord in (dasha_lord, antar_lord):
-        dc = DASHA_COLOUR.get(lord, {})
+    # ── Natal nakshatra flavour (rotated every other day) ────────────────────
+    natal_nak_flavours = NAKSHATRA_FLAVOUR.get(moon_nakshatra, {})
+    if topic in natal_nak_flavours and (seed % 2 == 0):
+        positives.append(f"_Your natal nakshatra ({moon_nakshatra}): {natal_nak_flavours[topic]}_")
+
+    # ── Tithi flavour (DAILY CHANGE) ─────────────────────────────────────────
+    tithi_flavours = TITHI_FLAVOUR.get(tithi_name, {})
+    if topic in tithi_flavours:
+        positives.append(f"_{paksha} {tithi_name}: {tithi_flavours[topic]}_")
+
+    # ── Paksha-topic micro-line (changes every ~15 days; rotates by seed) ───
+    paksha_topic = PAKSHA_TOPIC_LINE.get(paksha, {})
+    if topic in paksha_topic and (seed % 3 == 0):
+        positives.append(f"_{paksha_topic[topic]}_")
+
+    # ── Moon intensity (early / middle / late degrees, changes ~10 days) ────
+    moon_deg = transits.get("Moon", {}).get("degree", 0.0)
+    intensity = _moon_intensity_label(moon_deg)
+    intensity_topic = MOON_INTENSITY_LINE.get(intensity, {})
+    if topic in intensity_topic and (seed % 4 in (0, 1)):
+        positives.append(f"_{intensity_topic[topic]}_")
+
+    # ── Dasha colour (rotate which lord gets featured by day-of-week) ───────
+    weekday_idx = datetime.now().weekday()
+    lords = [dasha_lord, antar_lord]
+    chosen_lord = lords[weekday_idx % 2] if lords[0] and lords[1] else (dasha_lord or antar_lord)
+    if chosen_lord:
+        dc = DASHA_COLOUR.get(chosen_lord, {})
         if topic in dc:
-            positives.append(f"_({lord} Dasha: {dc[topic]})_")
-            break
+            positives.append(f"_({chosen_lord} Dasha: {dc[topic]})_")
 
+    # ── Empty-day fallback (rotates 4 ways) ─────────────────────────────────
     if not positives and not negatives:
-        return "➖", "  _A quiet, unremarkable day for this area. Maintain your routine steadily._"
+        quiet_variants = [
+            "A quiet, unremarkable day for this area. Maintain your routine steadily.",
+            "Steady-state energy here today — no major movement, but no setbacks either.",
+            "A neutral, low-key day for this domain. Use the calm to plan ahead.",
+            "Planetary attention is elsewhere today — this area runs smoothly on auto-pilot.",
+        ]
+        return "➖", "  _" + quiet_variants[seed % len(quiet_variants)] + "_"
 
     parts = []
     if positives:
@@ -961,6 +1165,7 @@ def generate_daily_forecast(
     date_str = now.strftime("%d %B %Y")
     transits = _get_transit_positions()
     tithi    = _get_today_tithi()
+    seed     = _daily_seed()
 
     gender_icon = "♂️" if gender.lower() == "male" else "♀️" if gender.lower() == "female" else "🔱"
 
@@ -1064,7 +1269,9 @@ def generate_daily_forecast(
     # ── MSG 4–14: One message per life area ──
     for topic in TOPIC_ORDER:
         verdict, para = _build_topic_paragraph(
-            topic, transits, moon_sign, moon_nak, maha_lord, antar_lord
+            topic, transits, moon_sign, moon_nak,
+            maha_lord, antar_lord,
+            tithi["name"], tithi["paksha"], seed,
         )
         title = TOPIC_TITLES[topic]
         messages.append(f"{verdict} *{title}*\n{'─' * 30}\n{para}")
