@@ -351,30 +351,43 @@ async def telegram_webhook(req: Request):
         return {"ok": True}
 
     # ── /today → daily forecast using cached kundli ──────────
+        # ── /today → daily forecast using cached kundli ──────────
     if text == "/today":
-        if chat_id not in user_kundli_cache:
-            send_message(
-                chat_id,
-                "🌟 I don't have your birth chart yet!\n\n"
-                "Please type /start first to generate your Kundli, "
-                "then use /today for your daily forecast. 🙏"
-            )
+            print(f"[/today] chat_id={chat_id} cache_keys={list(user_kundli_cache.keys())}")
+
+            if chat_id not in user_kundli_cache:
+                send_message(
+                    chat_id,
+                    "🌟 I don't have your birth chart yet!\n\n"
+                    "Please type /start first to generate your Kundli, "
+                    "then use /today for your daily forecast. 🙏\n\n"
+                    "_(Note: if the server restarted, you'll need to /start again.)_"
+                )
+                return {"ok": True}
+
+            send_typing(chat_id)
+            cached = user_kundli_cache[chat_id]
+            try:
+                print(f"[/today] Generating forecast for {cached.get('name')}")
+                forecast_messages = generate_daily_forecast(
+                    cached["kundli"],
+                    name=cached.get("name", ""),
+                    gender=cached.get("gender", ""),
+                )
+                print(f"[/today] Generated {len(forecast_messages)} messages")
+                for i, msg in enumerate(forecast_messages):
+                    print(f"[/today] Sending msg {i + 1}/{len(forecast_messages)} ({len(msg)} chars)")
+                    send_message(chat_id, msg)
+                print(f"[/today] All messages sent successfully")
+            except Exception as e:
+                import traceback
+                error_trace = traceback.format_exc()
+                print(f"[/today] ERROR: {e}\n{error_trace}")
+                send_message(
+                    chat_id,
+                    f"❌ Error generating forecast:\n`{str(e)[:200]}`\n\nTry /start again."
+                )
             return {"ok": True}
-
-        send_typing(chat_id)
-        cached = user_kundli_cache[chat_id]
-        try:
-            forecast_messages = generate_daily_forecast(
-                cached["kundli"],
-                name=cached.get("name", ""),
-                gender=cached.get("gender", ""),
-            )
-            for msg in forecast_messages:
-                send_message(chat_id, msg)
-        except Exception as e:
-            send_message(chat_id, f"❌ Error generating forecast: `{str(e)}`\n\nTry /start again.")
-        return {"ok": True}
-
     # ── No active session → prompt /start ────────────────────
     if chat_id not in user_sessions:
         send_message(
