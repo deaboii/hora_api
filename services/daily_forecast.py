@@ -11,6 +11,11 @@ v3 improvements (vs v2):
   - Natal nakshatra line rotates on/off every other day
   - Moon degree-of-sign "intensity" modifier (early/middle/late)
 
+TIMEZONE FIX:
+  All *calendar labels* (day seed, weekday, displayed date) are now computed
+  in IST, not the container's UTC clock. Julian Day calculations remain in
+  true UTC because JD is an absolute astronomical instant.
+
 Architecture:
   SIGNALS[(planet, house_from_moon)] -> {topic: (weight, text)}
   Each topic collects ALL matching signals for today's transits,
@@ -36,6 +41,18 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 swe.set_ephe_path(BASE_DIR)
 
 from utils.config import signs, nakshatras
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Timezone helpers — IST is UTC+5:30
+# ─────────────────────────────────────────────────────────────────────────────
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _now_ist() -> datetime:
+    """Current wall-clock time in India Standard Time, regardless of server TZ."""
+    return datetime.now(IST)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Reference tables
@@ -937,17 +954,21 @@ DO_DONT_SIGNALS: dict[tuple[str, int], tuple[str, str]] = {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Daily seed — changes every day, used to rotate sentences and break ties
+# Daily seed — changes every IST calendar day, used to rotate sentences/break ties
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _daily_seed() -> int:
-    """Integer that changes every calendar day (YYYYMMDD), IST-based."""
-    now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    """Integer that changes every IST calendar day (YYYYMMDD)."""
+    now = _now_ist()
     return now.year * 10000 + now.month * 100 + now.day
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Ephemeris helpers
+#
+# IMPORTANT: Julian Day must be built from TRUE UTC, because JD encodes an
+# absolute astronomical instant. We therefore use datetime.now(timezone.utc)
+# here — NOT IST. Only the calendar *labels* (seed, weekday, date string) use IST.
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _get_transit_positions() -> dict[str, dict]:
@@ -959,8 +980,10 @@ def _get_transit_positions() -> dict[str, dict]:
     for name, pid in PLANET_IDS.items():
         result, retflag = swe.calc_ut(jd, pid, swe.FLG_SIDEREAL)
         if retflag < 0:
-            raise RuntimeError(f"Ephemeris calc failed for {name} (flag={retflag}). "
-                               f"Check ephemeris files / set_ephe_path.")
+            raise RuntimeError(
+                f"Swiss Ephemeris calc failed for {name} (retflag={retflag}). "
+                f"Check that ephemeris files exist at the set_ephe_path location."
+            )
         lon = result[0]
         if name == "Ketu":
             lon = (lon + 180.0) % 360.0
@@ -977,13 +1000,14 @@ def _get_transit_positions() -> dict[str, dict]:
             "nakshatra": nakshatras[ni], "pada": pada,
             "longitude": round(lon, 4), "strength": s,
         }
-    # Debug: confirm transits actually move day-to-day
-    print(f"[forecast] jd={jd:.4f} moon={out['Moon']['sign']} "
-          f"{out['Moon']['degree']}° {out['Moon']['nakshatra']}")
+    # Debug line — confirms transits actually advance day-to-day in your logs.
+    print(f"[forecast] utc={now.isoformat()} ist={_now_ist().date()} "
+          f"moon={out['Moon']['sign']} {out['Moon']['degree']}° {out['Moon']['nakshatra']}")
     return out
 
 
 def _get_today_tithi() -> dict:
+    # Tithi is the Moon-Sun elongation at the current instant; JD uses true UTC.
     now = datetime.now(timezone.utc)
     jd = swe.julday(now.year, now.month, now.day, now.hour + now.minute / 60.0)
     sl = swe.calc_ut(jd, swe.SUN, swe.FLG_SWIEPH)[0][0]
@@ -1044,7 +1068,7 @@ def _build_topic_paragraph(
     Daily-changing inputs (so output differs each day):
       - tithi_name / paksha      → changes every ~24h
       - transits["Moon"]         → changes house every ~2.5d, nakshatra ~daily
-      - seed                     → changes every calendar day
+      - seed                     → changes every IST calendar day
       - weekday rotation         → 7-day cycle on dasha lord choice
     """
     positives: list[str] = []
@@ -1107,7 +1131,7 @@ def _build_topic_paragraph(
         positives.append(f"_{intensity_topic[topic]}_")
 
     # ── Dasha colour (rotate which lord gets featured by day-of-week) ───────
-    weekday_idx = datetime.now().weekday()
+    weekday_idx = _now_ist().weekday()
     lords = [dasha_lord, antar_lord]
     chosen_lord = lords[weekday_idx % 2] if lords[0] and lords[1] else (dasha_lord or antar_lord)
     if chosen_lord:
@@ -1167,7 +1191,7 @@ def generate_daily_forecast(
     maha_lord  = current.get("mahadasha", "—")
     antar_lord = current.get("antardasha", "—")
 
-    now      = datetime.now()
+    now      = _now_ist()
     weekday  = now.strftime("%A")
     date_str = now.strftime("%d %B %Y")
     transits = _get_transit_positions()

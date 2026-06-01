@@ -6,11 +6,15 @@ Generates a personalised daily transit prediction message for a user.
 Called by the morning cron job. Uses the user's natal Moon sign and Lagna
 from the database, calculates today's transits, and returns a formatted
 Telegram message string.
+
+TIMEZONE FIX:
+  Display date and the daily-tip selection now use IST, not the server's
+  UTC clock. The Julian Day used for ephemeris stays in true UTC.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import swisseph as swe
 import os
 
@@ -18,6 +22,17 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 swe.set_ephe_path(BASE_DIR)
 
 from utils.config import signs, nakshatras
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Timezone helpers — IST is UTC+5:30
+# ──────────────────────────────────────────────────────────────────────────────
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+def _now_ist() -> datetime:
+    return datetime.now(IST)
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
@@ -131,6 +146,7 @@ DHAIYA_HOUSES = {4, 8}
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _today_jd() -> float:
+    # Ephemeris instant must be true UTC.
     now = datetime.now(timezone.utc)
     return swe.julday(now.year, now.month, now.day, now.hour + now.minute / 60.0)
 
@@ -250,7 +266,7 @@ def generate_daily_prediction(user: dict) -> str:
         )
 
     positions = _get_transit_positions()
-    today_str = datetime.now().strftime("%A, %d %B %Y")
+    today_str = _now_ist().strftime("%A, %d %B %Y")
     score, day_label = _overall_day_score(positions, moon_sign, lagna)
 
     gender_icon = "♂️" if gender.lower() == "male" else "♀️" if gender.lower() == "female" else "✨"
