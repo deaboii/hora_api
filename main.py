@@ -233,6 +233,18 @@ def handle_user_message(
              "Send *Hi* (or /start) to generate your personalised Kundli 🔱\n"
              "Once done, send *today* anytime for your Daily Forecast 🌅")
         return
+    # ── /ask <question> → LLM astrology answer ──
+    if text.lower().startswith(("/ask", "ask ")) or text.endswith("?"):
+        if session_key not in user_kundli_cache:
+            send(user_id, "🌟 Generate your Kundli first — send *Hi*, then ask your question. 🙏")
+            return
+        typing(user_id)
+        from question_router import answer_question
+        cached = user_kundli_cache[session_key]
+        question = text.split(" ", 1)[1] if text.lower().startswith("/ask") else text
+        reply = answer_question(question, cached["kundli"], cached.get("name", ""), cached.get("gender", ""))
+        send(user_id, reply)
+        return
 
     session = user_sessions[session_key]
     step    = session["step"]
