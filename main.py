@@ -326,7 +326,7 @@ def handle_user_message(
     # ── 4. Kundli already built → ANY message is a question ──
     if session_key in user_kundli_cache:
         typing(user_id)
-        from question_router import answer_question
+        from question_router_memory import answer_question
         cached = user_kundli_cache[session_key]
 
         # optional "ask " / "/ask " prefix, but no longer required
@@ -339,12 +339,13 @@ def handle_user_message(
         if not question:
             send(user_id, "Please type your question — e.g. *When will I get married?* 🙏")
             return
-
+        history = cached.setdefault("history", [])  # <-- NEW: per-session memory
         reply = answer_question(
             question,
             cached["kundli"],
             cached.get("name", ""),
             cached.get("gender", ""),
+            history,  # <-- NEW: pass the conversation
         )
         send(user_id, reply)
         return
