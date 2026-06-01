@@ -339,11 +339,22 @@ def _call_gemini(system_prompt: str, contents: list) -> str | None:
     """
     Call Gemini with the full conversation `contents`
     (a list of {"role": "user"|"model", "parts": [{"text": ...}]} turns).
-    Returns the model's text, or None on any failure (-> template fallback).
+
+    Robust against transient failures:
+      - Retries on 429 and 5xx (e.g. 503 "model is overloaded") and on network
+        errors, with a short backoff.
+      - If the primary model stays unavailable, rolls over to a fallback model
+        (default: gemini-2.0-flash; override via the GEMINI_FALLBACK_MODELS env
+        var, comma-separated).
+      - Returns partial text on MAX_TOKENS instead of discarding it.
+
+    Returns the model's text, or None -> template fallback.
     """
     if not GEMINI_API_KEY:
         print("[gemini] no GEMINI_API_KEY set — using template fallback.")
         return None
+
+    import time
 
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
@@ -354,39 +365,82 @@ def _call_gemini(system_prompt: str, contents: list) -> str | None:
             "topP": 0.95,
         },
     }
-    try:
-        r = requests.post(
-            GEMINI_URL,
-            params={"key": GEMINI_API_KEY},
-            json=payload,
-            timeout=30,
+
+    # Primary model first, then fallbacks (helps when the primary is overloaded).
+    _fallback_env = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-2.0-flash")
+    model_chain = [GEMINI_MODEL] + [
+        m.strip() for m in _fallback_env.split(",")
+        if m.strip() and m.strip() != GEMINI_MODEL
+    ]
+
+    TRANSIENT = {429, 500, 502, 503, 504}
+
+    for mi, model in enumerate(model_chain):
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent"
         )
-        if r.status_code == 429:
-            print("[gemini] 429 rate/quota limit hit — using template fallback.")
-            return None
-        if not r.ok:
-            print(f"[gemini] HTTP {r.status_code}: {r.text[:300]} — fallback.")
-            return None
+        max_tries = 2 if mi == 0 else 1   # retry the primary once; try each fallback once
 
-        data = r.json()
-        candidates = data.get("candidates", [])
-        if not candidates:
-            print(f"[gemini] no candidates (feedback: {data.get('promptFeedback')}) — fallback.")
-            return None
+        for attempt in range(1, max_tries + 1):
+            try:
+                r = requests.post(
+                    url,
+                    params={"key": GEMINI_API_KEY},
+                    json=payload,
+                    timeout=30,
+                )
+            except Exception as e:
+                print(f"[gemini] {model} request exception (try {attempt}/{max_tries}): {e}")
+                if attempt < max_tries:
+                    time.sleep(2)
+                    continue
+                break  # give up on this model, try the next
 
-        cand = candidates[0]
-        if cand.get("finishReason") == "SAFETY":
-            print("[gemini] response blocked by safety — fallback.")
-            return None
+            if r.status_code in TRANSIENT:
+                print(f"[gemini] {model} HTTP {r.status_code} (transient, try {attempt}/{max_tries}).")
+                if attempt < max_tries:
+                    time.sleep(2 * attempt)   # 2s before the retry
+                    continue
+                break  # exhausted this model -> next model in the chain
 
-        parts = cand.get("content", {}).get("parts", [])
-        text = "".join(p.get("text", "") for p in parts).strip()
-        return text or None
+            if not r.ok:
+                # Non-transient (400/401/403/404 ...) won't fix itself.
+                print(f"[gemini] {model} HTTP {r.status_code}: {r.text[:300]} — not retrying.")
+                return None
 
-    except Exception as e:
-        print(f"[gemini] exception: {e} — fallback.")
-        return None
+            # ---- 200 OK ----
+            try:
+                data = r.json()
+            except Exception as e:
+                print(f"[gemini] {model} could not parse JSON: {e} — fallback.")
+                return None
 
+            candidates = data.get("candidates", [])
+            if not candidates:
+                print(f"[gemini] {model} no candidates (feedback: {data.get('promptFeedback')}) — fallback.")
+                return None
+
+            cand = candidates[0]
+            finish = cand.get("finishReason")
+            if finish == "SAFETY":
+                print(f"[gemini] {model} blocked by safety — fallback.")
+                return None
+
+            parts = cand.get("content", {}).get("parts", [])
+            text = "".join(p.get("text", "") for p in parts).strip()
+            if finish == "MAX_TOKENS":
+                print(f"[gemini] {model} hit MAX_TOKENS (truncated); returning partial.")
+            if text:
+                if mi > 0:
+                    print(f"[gemini] answered via fallback model: {model}")
+                return text
+
+            print(f"[gemini] {model} returned empty text — trying next option.")
+            break
+
+    print("[gemini] all models/attempts exhausted — using template fallback.")
+    return None
 
 def answer_question(
     question: str,
