@@ -17,7 +17,7 @@ from utils.yoga_calculator import calculate_yogas
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 swe.set_ephe_path(BASE_DIR)
 
-
+#test
 def generate_kundli(name: str, date_str: str, birth_time: str, lat: float, lon: float):
     if validate_parameters(name, date_str, lat, lon):
         # Set sidereal mode to Lahiri (standard in Vedic astrology)
