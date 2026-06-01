@@ -28,7 +28,7 @@ Usage:
 """
 
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import os
 import swisseph as swe
 
@@ -941,8 +941,8 @@ DO_DONT_SIGNALS: dict[tuple[str, int], tuple[str, str]] = {
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _daily_seed() -> int:
-    """Integer that changes every calendar day (YYYYMMDD)."""
-    now = datetime.now()
+    """Integer that changes every calendar day (YYYYMMDD), IST-based."""
+    now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
     return now.year * 10000 + now.month * 100 + now.day
 
 
@@ -957,7 +957,11 @@ def _get_transit_positions() -> dict[str, dict]:
     jd = swe.julday(now.year, now.month, now.day, now.hour + now.minute / 60.0)
     out = {}
     for name, pid in PLANET_IDS.items():
-        lon = swe.calc_ut(jd, pid, swe.FLG_SIDEREAL)[0][0]
+        result, retflag = swe.calc_ut(jd, pid, swe.FLG_SIDEREAL)
+        if retflag < 0:
+            raise RuntimeError(f"Ephemeris calc failed for {name} (flag={retflag}). "
+                               f"Check ephemeris files / set_ephe_path.")
+        lon = result[0]
         if name == "Ketu":
             lon = (lon + 180.0) % 360.0
         si = int(lon // 30)
@@ -973,6 +977,9 @@ def _get_transit_positions() -> dict[str, dict]:
             "nakshatra": nakshatras[ni], "pada": pada,
             "longitude": round(lon, 4), "strength": s,
         }
+    # Debug: confirm transits actually move day-to-day
+    print(f"[forecast] jd={jd:.4f} moon={out['Moon']['sign']} "
+          f"{out['Moon']['degree']}° {out['Moon']['nakshatra']}")
     return out
 
 
