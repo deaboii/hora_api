@@ -326,7 +326,7 @@ def handle_user_message(
     # ── 4. Kundli already built → ANY message is a question ──
     if session_key in user_kundli_cache:
         typing(user_id)
-        from question_router_memory import answer_question
+        from question_router import answer_question
         cached = user_kundli_cache[session_key]
 
         # optional "ask " / "/ask " prefix, but no longer required
@@ -380,14 +380,23 @@ async def telegram_webhook(req: Request):
     chat_id = message["chat"]["id"]
     text    = message.get("text", "").strip()
 
-    handle_user_message(
-        session_key = f"tg:{chat_id}",
-        user_id     = chat_id,
-        text        = text,
-        send        = tg_send_message,
-        typing      = tg_send_typing,
-    )
-    return {"ok": True}
+    try:
+        handle_user_message(
+            session_key = f"tg:{chat_id}",
+            user_id     = chat_id,
+            text        = text,
+            send        = tg_send_message,
+            typing      = tg_send_typing,
+        )
+    except Exception as e:
+        import traceback
+        print(f"[telegram handler error] {e}\n{traceback.format_exc()}")
+        try:
+            tg_send_message(chat_id, "⚠️ Something went wrong on my side. Please send *Hi* to restart.")
+        except Exception:
+            pass
+
+    return {"ok": True}   # ALWAYS 200 -> Telegram never retry-storms
 
 
 # ─────────────────────────────────────────────────────────────
@@ -472,12 +481,20 @@ async def whatsapp_webhook(req: Request):
 
                 text = msg.get("text", {}).get("body", "").strip()
 
-                handle_user_message(
-                    session_key = f"wa:{from_number}",
-                    user_id     = from_number,
-                    text        = text,
-                    send        = wa_send_message,
-                    typing      = wa_send_typing,
-                )
+                try:
+                    handle_user_message(
+                        session_key = f"wa:{from_number}",
+                        user_id     = from_number,
+                        text        = text,
+                        send        = wa_send_message,
+                        typing      = wa_send_typing,
+                    )
+                except Exception as e:
+                    import traceback
+                    print(f"[whatsapp handler error] {e}\n{traceback.format_exc()}")
+                    try:
+                        wa_send_message(from_number, "⚠️ Something went wrong on my side. Please send *Hi* to restart.")
+                    except Exception:
+                        pass
 
     return {"status": "ok"}
