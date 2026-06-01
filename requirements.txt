@@ -5,3 +5,4 @@ pyswisseph
 pytz
 requests
 psycopg2-binary
+geonamescache

@@ -14,7 +14,7 @@ from services.whatsapp_service import (
     send_typing  as wa_send_typing,
     mark_read    as wa_mark_read,
 )
-
+from geo_lookup import city_to_latlon
 app = FastAPI()
 app.include_router(kundli_router)
 
@@ -100,20 +100,20 @@ def tg_send_typing(chat_id: int):
 # Geocoding (shared)
 # ─────────────────────────────────────────────────────────────
 
-def city_to_latlon(city: str):
-    try:
-        r = requests.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={"q": city, "format": "json", "limit": 1},
-            headers={"User-Agent": "HoraAstroBot/1.0"},
-            timeout=8,
-        )
-        results = r.json()
-        if results:
-            return float(results[0]["lat"]), float(results[0]["lon"])
-    except Exception:
-        pass
-    return None
+# def city_to_latlon(city: str):
+#     try:
+#         r = requests.get(
+#             "https://nominatim.openstreetmap.org/search",
+#             params={"q": city, "format": "json", "limit": 1},
+#             headers={"User-Agent": "HoraAstroBot/1.0"},
+#             timeout=8,
+#         )
+#         results = r.json()
+#         if results:
+#             return float(results[0]["lat"]), float(results[0]["lon"])
+#     except Exception:
+#         pass
+#     return None
 
 
 # ─────────────────────────────────────────────────────────────
