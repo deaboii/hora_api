@@ -186,22 +186,22 @@ def fmt_kundli(result: dict, name: str, gender: str) -> list[str]:
 # ─────────────────────────────────────────────────────────────
 
 def handle_user_message(
-    *,
-    session_key: str,          # e.g. "tg:12345" or "wa:919XXXXXXXXX"
-    user_id,                   # int chat_id (telegram) or str phone (whatsapp)
-    text: str,
-    send,                      # function(user_id, text)
-    typing,                    # function(user_id)
+        *,
+        session_key: str,  # e.g. "tg:12345" or "wa:919XXXXXXXXX"
+        user_id,  # int chat_id (telegram) or str phone (whatsapp)
+        text: str,
+        send,  # function(user_id, text)
+        typing,  # function(user_id)
 ):
     text = (text or "").strip()
 
-    # ── /start or greeting resets session ────────────────────
+    # ── 1. /start or greeting always resets the session ──────
     if text == "/start" or GREETING_PATTERN.match(text):
         user_sessions[session_key] = {"step": "name", "data": {}}
         send(user_id, STEP_PROMPTS["name"])
         return
 
-    # ── /today → daily forecast ──────────────────────────────
+    # ── 2. /today → daily forecast (needs a cached Kundli) ───
     if text.lower() in ("/today", "today", "rashifal", "forecast"):
         if session_key not in user_kundli_cache:
             send(user_id,
@@ -223,121 +223,137 @@ def handle_user_message(
         except Exception as e:
             import traceback
             print(f"[forecast error] {e}\n{traceback.format_exc()}")
-            send(user_id, f"❌ Error generating forecast. Try sending *Hi* again.")
+            send(user_id, "❌ Error generating forecast. Try sending *Hi* again.")
         return
 
-    # ── No active session → prompt /start ────────────────────
-    if session_key not in user_sessions:
-        send(user_id,
-             "👋 *Welcome to Hora!*\n\n"
-             "Send *Hi* (or /start) to generate your personalised Kundli 🔱\n"
-             "Once done, send *today* anytime for your Daily Forecast 🌅")
-        return
-    # ── /ask <question> → LLM astrology answer ──
-    if text.lower().startswith(("/ask", "ask ")) or text.endswith("?"):
-        if session_key not in user_kundli_cache:
-            send(user_id, "🌟 Generate your Kundli first — send *Hi*, then ask your question. 🙏")
-            return
+    # ── 3. Mid-onboarding → run the step machine ─────────────
+    if session_key in user_sessions:
+        session = user_sessions[session_key]
+        step = session["step"]
+
+        if step == "name":
+            if len(text) < 2:
+                send(user_id, "❗ Please enter a valid name.")
+                return
+            session["data"]["name"] = text.title()
+            session["step"] = "gender"
+            send(user_id, STEP_PROMPTS["gender"])
+
+        elif step == "gender":
+            g = text.lower()
+            if g not in ("male", "female", "other"):
+                send(user_id, "❗ Please reply with Male, Female, or Other.")
+                return
+            session["data"]["gender"] = text.title()
+            session["step"] = "dob"
+            send(user_id, STEP_PROMPTS["dob"])
+
+        elif step == "dob":
+            if not re.match(r"^\d{2}-\d{2}-\d{4}$", text):
+                send(user_id, "❗ Invalid format. Please use DD-MM-YYYY.\nExample: 15-08-1995")
+                return
+            session["data"]["dob"] = text
+            session["step"] = "time"
+            send(user_id, STEP_PROMPTS["time"])
+
+        elif step == "time":
+            if not re.match(r"^\d{1,2}\.\d{2}$", text):
+                send(user_id, "❗ Invalid format. Please use HH.MM.\nExample: 14.30")
+                return
+            session["data"]["birth_time"] = text
+            session["step"] = "city"
+            send(user_id, STEP_PROMPTS["city"])
+
+        elif step == "city":
+            typing(user_id)
+            coords = city_to_latlon(text)
+            if not coords:
+                send(user_id,
+                     "❗ Couldn't find that city. Please try again with more detail.\n"
+                     "Example: Pune, India or New York, USA")
+                return
+
+            lat, lon = coords
+            session["data"]["city"] = text.title()
+            session["data"]["lat"] = lat
+            session["data"]["lon"] = lon
+            session["step"] = "processing"
+
+            d = session["data"]
+            send(user_id,
+                 f"✅ *Details Confirmed:*\n\n"
+                 f"👤 Name: {d['name']}\n"
+                 f"👤 Gender: {d['gender']}\n"
+                 f"📅 DOB: {d['dob']}\n"
+                 f"⏰ Time: {d['birth_time']} IST\n"
+                 f"📍 City: {d['city']}\n"
+                 f"🌐 Coordinates: {round(lat, 4)}°N, {round(lon, 4)}°E\n\n"
+                 f"⏳ _Calculating your Kundli... please wait_")
+            typing(user_id)
+
+            try:
+                result = generate_kundli(
+                    name=d["name"],
+                    date_str=d["dob"],
+                    birth_time=d["birth_time"],
+                    lat=d["lat"],
+                    lon=d["lon"],
+                )
+                user_kundli_cache[session_key] = {
+                    "kundli": result,
+                    "name": d["name"],
+                    "gender": d["gender"],
+                }
+                messages = fmt_kundli(result, d["name"], d["gender"])
+                for msg in messages:
+                    send(user_id, msg)
+
+                send(user_id,
+                     "🌅 *Your Kundli is ready!*\n\n"
+                     "Send *today* anytime to get your detailed daily forecast — "
+                     "family, love, health, career, finances, and more! 🔱\n\n"
+                     "Or just *ask me anything* about your chart — career, marriage, "
+                     "money, health... 💬")
+            except Exception as e:
+                import traceback
+                print(f"[kundli error] {e}\n{traceback.format_exc()}")
+                send(user_id, "❌ Error generating Kundli. Please send *Hi* to try again.")
+
+            del user_sessions[session_key]
+
+        return  # an onboarding step was handled
+
+    # ── 4. Kundli already built → ANY message is a question ──
+    if session_key in user_kundli_cache:
         typing(user_id)
         from question_router import answer_question
         cached = user_kundli_cache[session_key]
-        question = text.split(" ", 1)[1] if text.lower().startswith("/ask") else text
-        reply = answer_question(question, cached["kundli"], cached.get("name", ""), cached.get("gender", ""))
+
+        # optional "ask " / "/ask " prefix, but no longer required
+        low = text.lower()
+        if low.startswith("/ask") or low.startswith("ask "):
+            question = text[4:].strip()
+        else:
+            question = text
+
+        if not question:
+            send(user_id, "Please type your question — e.g. *When will I get married?* 🙏")
+            return
+
+        reply = answer_question(
+            question,
+            cached["kundli"],
+            cached.get("name", ""),
+            cached.get("gender", ""),
+        )
         send(user_id, reply)
         return
 
-    session = user_sessions[session_key]
-    step    = session["step"]
-
-    # ── Step machine (same as before) ────────────────────────
-    if step == "name":
-        if len(text) < 2:
-            send(user_id, "❗ Please enter a valid name.")
-            return
-        session["data"]["name"] = text.title()
-        session["step"] = "gender"
-        send(user_id, STEP_PROMPTS["gender"])
-
-    elif step == "gender":
-        g = text.lower()
-        if g not in ("male", "female", "other"):
-            send(user_id, "❗ Please reply with Male, Female, or Other.")
-            return
-        session["data"]["gender"] = text.title()
-        session["step"] = "dob"
-        send(user_id, STEP_PROMPTS["dob"])
-
-    elif step == "dob":
-        if not re.match(r"^\d{2}-\d{2}-\d{4}$", text):
-            send(user_id, "❗ Invalid format. Please use DD-MM-YYYY.\nExample: 15-08-1995")
-            return
-        session["data"]["dob"] = text
-        session["step"] = "time"
-        send(user_id, STEP_PROMPTS["time"])
-
-    elif step == "time":
-        if not re.match(r"^\d{1,2}\.\d{2}$", text):
-            send(user_id, "❗ Invalid format. Please use HH.MM.\nExample: 14.30")
-            return
-        session["data"]["birth_time"] = text
-        session["step"] = "city"
-        send(user_id, STEP_PROMPTS["city"])
-
-    elif step == "city":
-        typing(user_id)
-        coords = city_to_latlon(text)
-        if not coords:
-            send(user_id,
-                 "❗ Couldn't find that city. Please try again with more detail.\n"
-                 "Example: Pune, India or New York, USA")
-            return
-
-        lat, lon = coords
-        session["data"]["city"]  = text.title()
-        session["data"]["lat"]   = lat
-        session["data"]["lon"]   = lon
-        session["step"] = "processing"
-
-        d = session["data"]
-        send(user_id,
-             f"✅ *Details Confirmed:*\n\n"
-             f"👤 Name: {d['name']}\n"
-             f"👤 Gender: {d['gender']}\n"
-             f"📅 DOB: {d['dob']}\n"
-             f"⏰ Time: {d['birth_time']} IST\n"
-             f"📍 City: {d['city']}\n"
-             f"🌐 Coordinates: {round(lat, 4)}°N, {round(lon, 4)}°E\n\n"
-             f"⏳ _Calculating your Kundli... please wait_")
-        typing(user_id)
-
-        try:
-            result = generate_kundli(
-                name       = d["name"],
-                date_str   = d["dob"],
-                birth_time = d["birth_time"],
-                lat        = d["lat"],
-                lon        = d["lon"],
-            )
-            user_kundli_cache[session_key] = {
-                "kundli": result,
-                "name":   d["name"],
-                "gender": d["gender"],
-            }
-            messages = fmt_kundli(result, d["name"], d["gender"])
-            for msg in messages:
-                send(user_id, msg)
-
-            send(user_id,
-                 "🌅 *Your Kundli is ready!*\n\n"
-                 "Send *today* anytime to get your detailed daily forecast — "
-                 "family, love, health, career, finances, and more! 🔱")
-        except Exception as e:
-            import traceback
-            print(f"[kundli error] {e}\n{traceback.format_exc()}")
-            send(user_id,
-                 f"❌ Error generating Kundli. Please send *Hi* to try again.")
-
-        del user_sessions[session_key]
+    # ── 5. Brand-new user, nothing yet → prompt to start ─────
+    send(user_id,
+         "👋 *Welcome to Hora!*\n\n"
+         "Send *Hi* (or /start) to generate your personalised Kundli 🔱\n"
+         "Once done, send *today* anytime for your Daily Forecast 🌅")
 
 
 # ─────────────────────────────────────────────────────────────
