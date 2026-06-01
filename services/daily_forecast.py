@@ -41,6 +41,27 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 swe.set_ephe_path(BASE_DIR)
 
 from utils.config import signs, nakshatras
+from utils.muhurta import live_snapshot, next_jupiter_venus_hora, current_hora, _now_ist as _muhurta_now
+
+# Hora-to-topic boost: which life areas each running planetary hora favours.
+# Used to inject a "right now" line into topic paragraphs so the text shifts
+# through the day even when the slow transits are unchanged.
+HORA_TOPIC_BOOST: dict[str, dict[str, str]] = {
+    "Sun":     {"job": "The running Sun hora favours dealing with bosses and authority this hour.",
+                "politics": "Sun hora now — a strong window for public/official moves."},
+    "Moon":    {"family": "The running Moon hora softens the mood — good hour for family and home.",
+                "love": "Moon hora now — emotions flow easily; a tender hour for connection."},
+    "Mars":    {"sports": "The running Mars hora gives a burst of physical drive this hour.",
+                "job": "Mars hora now — push hard on a tough task, but avoid picking fights."},
+    "Mercury": {"education": "The running Mercury hora is ideal for study and writing this hour.",
+                "business": "Mercury hora now — a sharp window for trade, talks, and contracts."},
+    "Jupiter": {"finances": "The running Jupiter hora blesses money and big decisions this hour.",
+                "education": "Jupiter hora now — the best hour of the day to begin learning or sign anything important."},
+    "Venus":   {"love": "The running Venus hora is the sweetest hour for romance and beauty.",
+                "arts": "Venus hora now — a luminous window for art, music, and aesthetics."},
+    "Saturn":  {"job": "The running Saturn hora rewards patient, disciplined grind this hour.",
+                "finances": "Saturn hora now — handle long-term planning; avoid new launches this hour."},
+}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Timezone helpers — IST is UTC+5:30
@@ -963,6 +984,16 @@ def _daily_seed() -> int:
     return now.year * 10000 + now.month * 100 + now.day
 
 
+def _hourly_seed() -> int:
+    """
+    Integer that changes every hour of the IST day. Used to rotate wording so
+    that even slow-transit topic text reads differently when the user refreshes
+    /today later in the day — giving an hour-to-hour 'live' feel.
+    """
+    now = _now_ist()
+    return now.year * 1000000 + now.month * 10000 + now.day * 100 + now.hour
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Ephemeris helpers
 #
@@ -1061,6 +1092,8 @@ def _build_topic_paragraph(
     tithi_name: str,
     paksha: str,
     seed: int,
+    hora_planet: str = "",
+    hourly_seed: int = 0,
 ) -> tuple[str, str]:
     """
     Build the per-topic paragraph.
@@ -1070,6 +1103,10 @@ def _build_topic_paragraph(
       - transits["Moon"]         → changes house every ~2.5d, nakshatra ~daily
       - seed                     → changes every IST calendar day
       - weekday rotation         → 7-day cycle on dasha lord choice
+
+    Intra-day-changing inputs (so output differs hour to hour):
+      - hora_planet              → the running planetary hour (changes ~hourly)
+      - hourly_seed              → rotates phrasing through the day
     """
     positives: list[str] = []
     negatives: list[str] = []
@@ -1139,19 +1176,35 @@ def _build_topic_paragraph(
         if topic in dc:
             positives.append(f"_({chosen_lord} Dasha: {dc[topic]})_")
 
-    # ── Empty-day fallback (rotates 4 ways) ─────────────────────────────────
+    # ── Running Hora boost (CHANGES ~HOURLY) ────────────────────────────────
+    # The planetary hour favours specific life areas. Injecting this makes the
+    # paragraph read differently when the user refreshes /today later in the day.
+    hora_boost = HORA_TOPIC_BOOST.get(hora_planet, {})
+    if topic in hora_boost:
+        positives.append(f"_⏱️ {hora_boost[topic]}_")
+
+    # ── Empty-hour fallback (rotates by HOUR, not just day) ─────────────────
     if not positives and not negatives:
         quiet_variants = [
-            "A quiet, unremarkable day for this area. Maintain your routine steadily.",
-            "Steady-state energy here today — no major movement, but no setbacks either.",
-            "A neutral, low-key day for this domain. Use the calm to plan ahead.",
-            "Planetary attention is elsewhere today — this area runs smoothly on auto-pilot.",
+            "A quiet stretch for this area right now. Maintain your routine steadily.",
+            "Steady-state energy here this hour — no major movement, no setbacks either.",
+            "A neutral, low-key window for this domain. Use the calm to plan ahead.",
+            "Planetary attention is elsewhere this hour — this area runs on auto-pilot.",
+            "Nothing pressing here at the moment; revisit later in the day for a shift.",
+            "A settled patch for this topic now — a good time to simply observe.",
         ]
-        return "➖", "  _" + quiet_variants[seed % len(quiet_variants)] + "_"
+        return "➖", "  _" + quiet_variants[hourly_seed % len(quiet_variants)] + "_"
+
+    # ── Rotating opener (by hour) so the lead sentence varies through the day ─
+    OPENERS = [
+        "", "", "",  # often no opener (keeps it clean)
+        "Right now: ", "At this hour: ", "Currently: ",
+    ]
+    opener = OPENERS[hourly_seed % len(OPENERS)]
 
     parts = []
     if positives:
-        parts.append("  " + " ".join(positives))
+        parts.append("  " + opener + " ".join(positives))
     if negatives:
         connector = "\n\n  However, stay cautious: " if positives else "  ⚠️ "
         parts.append(connector + " ".join(negatives))
@@ -1197,6 +1250,14 @@ def generate_daily_forecast(
     transits = _get_transit_positions()
     tithi    = _get_today_tithi()
     seed     = _daily_seed()
+    hseed    = _hourly_seed()
+
+    # ── Live "this moment" snapshot (Hora / Choghadiya / rising Lagna / Moon) ─
+    details = kundli_result.get("details", {})
+    user_lat = details.get("lat")
+    user_lon = details.get("lon")
+    snap = live_snapshot(user_lat, user_lon)
+    running_hora_planet = snap.get("hora", {}).get("planet", "")
 
     gender_icon = "♂️" if gender.lower() == "male" else "♀️" if gender.lower() == "female" else "🔱"
 
@@ -1297,12 +1358,65 @@ def generate_daily_forecast(
         f"_{nak_health_note}_"
     )
 
+    # ── MSG 3.5: THIS MOMENT (live — changes through the day) ───────────────
+    hora = snap.get("hora", {})
+    chg  = snap.get("choghadiya", {})
+    lg   = snap.get("lagna", {})
+    mn   = snap.get("moon", {})
+
+    live_lines = [f"⏱️ *THIS MOMENT*  ·  _{snap.get('timestamp_ist', '')}_\n{'─' * 30}"]
+
+    if "error" not in hora and hora:
+        live_lines.append(
+            f"\n{hora.get('icon', '⭐')} *Running Hora: {hora.get('planet', '—')}* "
+            f"({hora.get('start', '')}–{hora.get('end', '')})\n"
+            f"   _Quality: {hora.get('quality', '')}_\n"
+            f"   ✅ Good for: {hora.get('good_for', '')}\n"
+            f"   ⚠️ Avoid: {hora.get('avoid', '')}"
+        )
+
+    if "error" not in chg and chg:
+        live_lines.append(
+            f"\n{chg.get('icon', '')} *Choghadiya: {chg.get('name', '—')}* "
+            f"({chg.get('label', '')}) · {chg.get('period', '')} "
+            f"{chg.get('start', '')}–{chg.get('end', '')}\n"
+            f"   _{chg.get('description', '')}_"
+        )
+
+    if "error" not in lg and lg:
+        live_lines.append(
+            f"\n⬆️ *Rising now (Lagna): {lg.get('sign', '—')} {lg.get('degree', 0)}°*\n"
+            f"   _{lg.get('nakshatra', '')} Pada {lg.get('pada', '')} — the ascendant shifts "
+            f"every ~2 hours; the degree every ~4 minutes._"
+        )
+
+    if "error" not in mn and mn:
+        live_lines.append(
+            f"\n🌙 *Moon right now: {mn.get('sign', '—')} {mn.get('degree', 0)}°* "
+            f"({mn.get('nakshatra', '')} Pada {mn.get('pada', '')})"
+        )
+
+    # Best upcoming auspicious hora today
+    if user_lat is not None and user_lon is not None:
+        try:
+            nxt = next_jupiter_venus_hora(_muhurta_now(), user_lat, user_lon)
+            if nxt:
+                live_lines.append(
+                    f"\n🌟 *Next highly auspicious window:* {nxt['planet']} Hora "
+                    f"{nxt['start']}–{nxt['end']} — favourable for important new actions."
+                )
+        except Exception:
+            pass
+
+    messages.append("\n".join(live_lines))
+
     # ── MSG 4–14: One message per life area ──
     for topic in TOPIC_ORDER:
         verdict, para = _build_topic_paragraph(
             topic, transits, moon_sign, moon_nak,
             maha_lord, antar_lord,
             tithi["name"], tithi["paksha"], seed,
+            hora_planet=running_hora_planet, hourly_seed=hseed,
         )
         title = TOPIC_TITLES[topic]
         messages.append(f"{verdict} *{title}*\n{'─' * 30}\n{para}")
