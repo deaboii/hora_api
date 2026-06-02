@@ -317,8 +317,12 @@ def _system_prompt(name: str, gender: str, soft_kind: str) -> str:
         "4. Be honest and grounded. Frame everything as traditional Jyotish interpretation "
         "and tendencies, NOT guaranteed events. Avoid absolute certainty. It's fine to say "
         "an outcome is 'likely', 'supported', or 'challenging' rather than certain.\n"
-        "5. Reply in the SAME language the person used (English, Hindi, or Hinglish). Match "
-        "their tone.\n"
+        "5. LANGUAGE: Always reply in ENGLISH, written in the Latin/Roman alphabet. "
+        "You may sprinkle in common Hindi/Sanskrit Jyotish terms (e.g. dasha, dosha, "
+        "lagna, graha) written in Roman letters — i.e. Hinglish is fine — but the reply "
+        "must be primarily English. NEVER write in the Devanagari (Hindi) script. Even if "
+        "the person writes their question in Hindi or Devanagari, answer in English/Hinglish "
+        "using Roman letters only.\n"
         "6. Keep it focused: a few short paragraphs. End with one practical, encouraging "
         "note or a simple traditional remedy if relevant.\n"
         "7. FORMATTING (important): plain text with at most *single asterisks* for emphasis. "
@@ -350,7 +354,7 @@ def _call_gemini(system_prompt: str, contents: list) -> str | None:
         "contents": contents,
         "generationConfig": {
             "temperature": 0.75,
-            "maxOutputTokens": 1200,
+            "maxOutputTokens": 2048,
             "topP": 0.95,
         },
     }
