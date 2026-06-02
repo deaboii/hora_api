@@ -15,8 +15,42 @@ from services.whatsapp_service import (
     mark_read    as wa_mark_read,
 )
 from geo_lookup import city_to_latlon
-from database import init_db, upsert_user
+from database import (
+    init_db, upsert_user, get_user, set_phone_number,
+    archive_user, update_profile,
+)
 app = FastAPI()
+
+
+# ── Helpers shared across the handler ────────────────────────────
+def _db_chat_id(session_key: str, user_id) -> int:
+    """
+    Map a session to the BIGINT primary key used in the DB.
+    Telegram: the numeric chat_id. WhatsApp: a stable hash of the phone string.
+    """
+    if session_key.startswith("tg:"):
+        return int(user_id)
+    return abs(hash(str(user_id))) % (10 ** 15)
+
+
+# Required fields for a profile to count as "complete" (skip onboarding).
+_REQUIRED_FIELDS = ("name", "gender", "date_of_birth", "birth_time", "city")
+
+def _profile_complete(row: dict) -> bool:
+    return bool(row) and bool(row.get("kundli_json")) and all(
+        row.get(f) for f in _REQUIRED_FIELDS
+    )
+
+
+# Map a user-facing "update X" keyword to (db_column, session_step, prompt).
+UPDATE_FIELDS = {
+    "name":   ("name",          "upd_name",   "✏️ Send your new *name*:"),
+    "gender": ("gender",        "upd_gender", "✏️ Send your *gender* (Male / Female / Other):"),
+    "dob":    ("date_of_birth", "upd_dob",    "✏️ Send your new *date of birth* (DD-MM-YYYY):"),
+    "date":   ("date_of_birth", "upd_dob",    "✏️ Send your new *date of birth* (DD-MM-YYYY):"),
+    "time":   ("birth_time",    "upd_time",   "✏️ Send your new *birth time* (HH.MM):"),
+    "city":   ("city",          "upd_city",   "✏️ Send your new *city, country* of birth:"),
+}
 
 
 @app.on_event("startup")
@@ -100,6 +134,40 @@ def tg_send_typing(chat_id: int):
         f"{TELEGRAM_API}/sendChatAction",
         json={"chat_id": chat_id, "action": "typing"},
         timeout=5,
+    )
+
+
+def tg_request_contact(chat_id: int):
+    """Show a one-tap button to share the user's (verified) phone number."""
+    keyboard = {
+        "keyboard": [[{"text": "📱 Share my phone number", "request_contact": True}]],
+        "one_time_keyboard": True,
+        "resize_keyboard": True,
+    }
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": ("📱 Want your reading saved to your number? Tap below to share it "
+                     "(optional), or type */skip* to continue without it."),
+            "parse_mode": "Markdown",
+            "reply_markup": keyboard,
+        },
+        timeout=10,
+    )
+
+
+def tg_remove_keyboard(chat_id: int, text: str):
+    """Send a message and dismiss the custom keyboard."""
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown",
+            "reply_markup": {"remove_keyboard": True},
+        },
+        timeout=10,
     )
 
 
@@ -202,8 +270,54 @@ def handle_user_message(
 ):
     text = (text or "").strip()
 
-    # ── 1. /start or greeting always resets the session ──────
+    # ── 0. /skip → dismiss the phone-share keyboard, continue ────
+    if text.lower() in ("/skip", "skip") and session_key.startswith("tg:"):
+        tg_remove_keyboard(user_id, "👍 No problem — continuing without your phone number.")
+        return
+
+    # ── 0b. /update [field] → edit a stored detail ───────────────
+    low_all = text.lower().strip()
+    if low_all == "/update" or low_all.startswith("update ") or low_all.startswith("/update "):
+        cid = _db_chat_id(session_key, user_id)
+        if not get_user(cid):
+            send(user_id, "I don't have your details yet. Send *Hi* to set up your Kundli first. 🙏")
+            return
+        # Which field? e.g. "update city" / "/update dob"
+        parts = low_all.replace("/update", "update").split()
+        field_key = parts[1] if len(parts) > 1 else None
+        if field_key in UPDATE_FIELDS:
+            col, step, prompt = UPDATE_FIELDS[field_key]
+            user_sessions[session_key] = {"step": step, "data": {}}
+            send(user_id, prompt)
+        else:
+            send(user_id,
+                 "✏️ *What would you like to update?*\n\n"
+                 "Send one of:\n"
+                 "  • `update name`\n  • `update gender`\n  • `update dob`\n"
+                 "  • `update time`\n  • `update city`")
+        return
+
+    # ── 1. /start or greeting: returning users skip onboarding ───
     if text == "/start" or GREETING_PATTERN.match(text):
+        cid = _db_chat_id(session_key, user_id)
+        existing = get_user(cid)
+        if _profile_complete(existing):
+            # Restore the chart into cache so questions work immediately.
+            user_kundli_cache[session_key] = {
+                "kundli": existing["kundli_json"],
+                "name":   existing.get("name", ""),
+                "gender": existing.get("gender", ""),
+            }
+            user_sessions.pop(session_key, None)
+            send(user_id,
+                 f"🙏 *Welcome back, {existing.get('name','')}!*\n\n"
+                 "Ask me anything about your chart, send *today* for your daily "
+                 "forecast, or type *update* to change your birth details.")
+            # Telegram: offer the phone button if we don't have it yet.
+            if session_key.startswith("tg:") and not existing.get("phone_number"):
+                tg_request_contact(user_id)
+            return
+        # New / incomplete → start onboarding.
         user_sessions[session_key] = {"step": "name", "data": {}}
         send(user_id, STEP_PROMPTS["name"])
         return
@@ -346,7 +460,94 @@ def handle_user_message(
 
             del user_sessions[session_key]
 
-        return  # an onboarding step was handled
+        # ── /update handlers ───────────────────────────────────
+        elif step in ("upd_name", "upd_gender", "upd_dob", "upd_time", "upd_city"):
+            cid = _db_chat_id(session_key, user_id)
+            row = get_user(cid)
+            if not row:
+                send(user_id, "Couldn't find your record. Send *Hi* to set up again. 🙏")
+                user_sessions.pop(session_key, None)
+                return
+
+            new_val = text.strip()
+
+            # Validate per field.
+            if step == "upd_name":
+                if len(new_val) < 2:
+                    send(user_id, "❗ Please enter a valid name."); return
+                col, value, chart_change = "name", new_val.title(), False
+
+            elif step == "upd_gender":
+                if new_val.lower() not in ("male", "female", "other"):
+                    send(user_id, "❗ Please reply Male, Female, or Other."); return
+                col, value, chart_change = "gender", new_val.title(), False
+
+            elif step == "upd_dob":
+                if not re.match(r"^\d{2}-\d{2}-\d{4}$", new_val):
+                    send(user_id, "❗ Use DD-MM-YYYY.\nExample: 15-08-1995"); return
+                col, value, chart_change = "date_of_birth", new_val, True
+
+            elif step == "upd_time":
+                if not re.match(r"^\d{1,2}\.\d{2}$", new_val):
+                    send(user_id, "❗ Use HH.MM.\nExample: 14.30"); return
+                col, value, chart_change = "birth_time", new_val, True
+
+            elif step == "upd_city":
+                typing(user_id)
+                coords = city_to_latlon(new_val)
+                if not coords:
+                    send(user_id, "❗ Couldn't find that city. Try 'Pune, India'."); return
+                new_lat, new_lon = coords
+                col, value, chart_change = "city", new_val.title(), True
+
+            # Archive the OLD snapshot before changing anything.
+            archive_user(cid, changed_field=col)
+
+            if chart_change:
+                # Rebuild birth data from the stored row, applying the new value.
+                typing(user_id)
+                dob   = value if col == "date_of_birth" else row.get("date_of_birth")
+                btime = value if col == "birth_time"    else row.get("birth_time")
+                if col == "city":
+                    lat, lon, city = new_lat, new_lon, value
+                else:
+                    lat, lon, city = row.get("latitude"), row.get("longitude"), row.get("city")
+                try:
+                    result = generate_kundli(
+                        name=row.get("name"), date_str=dob, birth_time=btime,
+                        lat=lat, lon=lon,
+                    )
+                except Exception as e:
+                    import traceback
+                    print(f"[update recompute error] {e}\n{traceback.format_exc()}")
+                    send(user_id, "❌ Couldn't recompute your chart. Please try again.")
+                    user_sessions.pop(session_key, None)
+                    return
+
+                # If city changed, also persist the new lat/lon (separate columns).
+                if col == "city":
+                    update_profile(cid, "latitude", new_lat)
+                    update_profile(cid, "longitude", new_lon)
+                # Update the changed field + refreshed chart, and reset chat memory.
+                update_profile(cid, col, value, kundli_result=result, reset_conversation=True)
+
+                # Refresh the in-memory cache so the new chart is used right away.
+                user_kundli_cache[session_key] = {
+                    "kundli": result,
+                    "name":   row.get("name", ""),
+                    "gender": row.get("gender", ""),
+                }
+                send(user_id,
+                     "✅ Updated! Your birth details changed, so I recalculated your "
+                     "Kundli and started a fresh conversation. Ask away, or send *today*. 🔱")
+            else:
+                # Cosmetic change (name/gender) — chart & conversation untouched.
+                update_profile(cid, col, value)
+                if session_key in user_kundli_cache and col in ("name", "gender"):
+                    user_kundli_cache[session_key][col] = value
+                send(user_id, f"✅ Your *{col.replace('_',' ')}* has been updated.")
+
+            user_sessions.pop(session_key, None)
 
     # ── 4. Kundli already built → ANY message is a question ──
     if session_key in user_kundli_cache:
@@ -364,13 +565,13 @@ def handle_user_message(
         if not question:
             send(user_id, "Please type your question — e.g. *When will I get married?* 🙏")
             return
-        history = cached.setdefault("history", [])  # <-- NEW: per-session memory
+
         reply = answer_question(
             question,
             cached["kundli"],
             cached.get("name", ""),
             cached.get("gender", ""),
-            history,  # <-- NEW: pass the conversation
+            _db_chat_id(session_key, user_id),   # DB-backed conversation memory
         )
         send(user_id, reply)
         return
@@ -403,7 +604,28 @@ async def telegram_webhook(req: Request):
 
     message = data["message"]
     chat_id = message["chat"]["id"]
-    text    = message.get("text", "").strip()
+
+    # ── Shared contact (phone number via the request_contact button) ──
+    if "contact" in message:
+        contact = message["contact"]
+        phone   = contact.get("phone_number")
+        shared  = contact.get("user_id")
+        try:
+            # Verified only if the shared contact IS this user (Telegram vouches).
+            if phone and shared == chat_id:
+                set_phone_number(_db_chat_id(f"tg:{chat_id}", chat_id), phone)
+                tg_remove_keyboard(chat_id, "✅ Thanks! Your phone number is saved.")
+            else:
+                tg_remove_keyboard(
+                    chat_id,
+                    "⚠️ Please use the button to share *your own* number. Or type */skip*.",
+                )
+        except Exception as e:
+            import traceback
+            print(f"[contact handler error] {e}\n{traceback.format_exc()}")
+        return {"ok": True}
+
+    text = message.get("text", "").strip()
 
     try:
         handle_user_message(

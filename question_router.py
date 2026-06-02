@@ -339,22 +339,11 @@ def _call_gemini(system_prompt: str, contents: list) -> str | None:
     """
     Call Gemini with the full conversation `contents`
     (a list of {"role": "user"|"model", "parts": [{"text": ...}]} turns).
-
-    Robust against transient failures:
-      - Retries on 429 and 5xx (e.g. 503 "model is overloaded") and on network
-        errors, with a short backoff.
-      - If the primary model stays unavailable, rolls over to a fallback model
-        (default: gemini-2.0-flash; override via the GEMINI_FALLBACK_MODELS env
-        var, comma-separated).
-      - Returns partial text on MAX_TOKENS instead of discarding it.
-
-    Returns the model's text, or None -> template fallback.
+    Returns the model's text, or None on any failure (-> template fallback).
     """
     if not GEMINI_API_KEY:
         print("[gemini] no GEMINI_API_KEY set — using template fallback.")
         return None
-
-    import time
 
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
@@ -365,98 +354,103 @@ def _call_gemini(system_prompt: str, contents: list) -> str | None:
             "topP": 0.95,
         },
     }
-
-    # Primary model first, then fallbacks (helps when the primary is overloaded).
-    _fallback_env = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-2.0-flash")
-    model_chain = [GEMINI_MODEL] + [
-        m.strip() for m in _fallback_env.split(",")
-        if m.strip() and m.strip() != GEMINI_MODEL
-    ]
-
-    TRANSIENT = {429, 500, 502, 503, 504}
-
-    for mi, model in enumerate(model_chain):
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model}:generateContent"
+    try:
+        r = requests.post(
+            GEMINI_URL,
+            params={"key": GEMINI_API_KEY},
+            json=payload,
+            timeout=30,
         )
-        max_tries = 2 if mi == 0 else 1   # retry the primary once; try each fallback once
+        if r.status_code == 429:
+            print("[gemini] 429 rate/quota limit hit — using template fallback.")
+            return None
+        if not r.ok:
+            print(f"[gemini] HTTP {r.status_code}: {r.text[:300]} — fallback.")
+            return None
 
-        for attempt in range(1, max_tries + 1):
-            try:
-                r = requests.post(
-                    url,
-                    params={"key": GEMINI_API_KEY},
-                    json=payload,
-                    timeout=30,
-                )
-            except Exception as e:
-                print(f"[gemini] {model} request exception (try {attempt}/{max_tries}): {e}")
-                if attempt < max_tries:
-                    time.sleep(2)
-                    continue
-                break  # give up on this model, try the next
+        data = r.json()
+        candidates = data.get("candidates", [])
+        if not candidates:
+            print(f"[gemini] no candidates (feedback: {data.get('promptFeedback')}) — fallback.")
+            return None
 
-            if r.status_code in TRANSIENT:
-                print(f"[gemini] {model} HTTP {r.status_code} (transient, try {attempt}/{max_tries}).")
-                if attempt < max_tries:
-                    time.sleep(2 * attempt)   # 2s before the retry
-                    continue
-                break  # exhausted this model -> next model in the chain
+        cand = candidates[0]
+        if cand.get("finishReason") == "SAFETY":
+            print("[gemini] response blocked by safety — fallback.")
+            return None
 
-            if not r.ok:
-                # Non-transient (400/401/403/404 ...) won't fix itself.
-                print(f"[gemini] {model} HTTP {r.status_code}: {r.text[:300]} — not retrying.")
-                return None
+        parts = cand.get("content", {}).get("parts", [])
+        text = "".join(p.get("text", "") for p in parts).strip()
+        return text or None
 
-            # ---- 200 OK ----
-            try:
-                data = r.json()
-            except Exception as e:
-                print(f"[gemini] {model} could not parse JSON: {e} — fallback.")
-                return None
+    except Exception as e:
+        print(f"[gemini] exception: {e} — fallback.")
+        return None
 
-            candidates = data.get("candidates", [])
-            if not candidates:
-                print(f"[gemini] {model} no candidates (feedback: {data.get('promptFeedback')}) — fallback.")
-                return None
 
-            cand = candidates[0]
-            finish = cand.get("finishReason")
-            if finish == "SAFETY":
-                print(f"[gemini] {model} blocked by safety — fallback.")
-                return None
+# How many recent Q&A pairs to send verbatim, and when to compact.
+_RECENT_QA_PAIRS   = 3   # last N pairs sent verbatim (keeps follow-ups working)
+_SUMMARIZE_AT      = 6   # once qa_log has > this many pairs, fold older ones into the summary
 
-            parts = cand.get("content", {}).get("parts", [])
-            text = "".join(p.get("text", "") for p in parts).strip()
-            if finish == "MAX_TOKENS":
-                print(f"[gemini] {model} hit MAX_TOKENS (truncated); returning partial.")
-            if text:
-                if mi > 0:
-                    print(f"[gemini] answered via fallback model: {model}")
-                return text
 
-            print(f"[gemini] {model} returned empty text — trying next option.")
-            break
+def _qa_log_to_turns(qa_log: list, limit_pairs: int) -> list:
+    """Convert the last `limit_pairs` {q,a} entries into Gemini-format turns."""
+    turns = []
+    for entry in qa_log[-limit_pairs:]:
+        q = (entry.get("q") or "").strip()
+        a = (entry.get("a") or "").strip()
+        if q:
+            turns.append({"role": "user", "parts": [{"text": q}]})
+        if a:
+            turns.append({"role": "model", "parts": [{"text": a}]})
+    return turns
 
-    print("[gemini] all models/attempts exhausted — using template fallback.")
-    return None
+
+def _summarize_conversation(prev_summary: str, older_pairs: list, name: str) -> str | None:
+    """
+    Fold older Q&A pairs into a compact rolling summary via one Gemini call.
+    Returns the new summary text, or None on failure (caller keeps old summary).
+    """
+    lines = []
+    if prev_summary:
+        lines.append(f"Existing summary:\n{prev_summary}\n")
+    lines.append("Older Q&A to fold in:")
+    for e in older_pairs:
+        q = (e.get("q") or "").strip()
+        a = (e.get("a") or "").strip()
+        if q:
+            lines.append(f"Q: {q}")
+        if a:
+            lines.append(f"A: {a}")
+    transcript = "\n".join(lines)
+
+    system = (
+        "You compress an astrology consultation into a compact memory note. "
+        "Capture, in under 150 words: the topics the user cares about, key facts "
+        "they shared, and the main chart-based conclusions already given (e.g. "
+        "marriage timing, career outlook). Write plain notes, third person, no "
+        "preamble. This note is the bot's memory for future replies."
+    )
+    contents = [{"role": "user", "parts": [{"text": transcript}]}]
+    return _call_gemini(system, contents)
+
 
 def answer_question(
     question: str,
     kundli: dict,
     name: str = "",
     gender: str = "",
-    history: list | None = None,
+    db_chat_id: int | None = None,
 ) -> str:
     """
     Answer a free-form astrology question grounded in the user's computed kundli.
 
-    `history` is the running conversation for ONE session, a list of Gemini-format
-    turns: [{"role": "user"|"model", "parts": [{"text": ...}]}, ...].
-    Pass the SAME list object on every call for that session (store it in the
-    user's cache). On a successful answer, this question and the reply are
-    appended to `history` in place, so the next question has context.
+    Conversation memory is persisted in the database (keyed by db_chat_id):
+      • chat_summary — a rolling summary of older turns (compact, token-bounded)
+      • qa_log       — recent Q&A pairs (the last few are sent verbatim so
+                       follow-ups like "where will she be from" resolve)
+    If db_chat_id is None (e.g. memory unavailable), it still answers, just
+    without persistent memory.
 
     Always returns a string safe to send to Telegram/WhatsApp.
     """
@@ -464,10 +458,7 @@ def answer_question(
     if not question:
         return "Please type your question — for example, *When will I get married?* 🙏"
 
-    if history is None:
-        history = []
-
-    # ── Hard guardrails: never call the LLM (and don't record in history) ───
+    # ── Hard guardrails: never call the LLM (and don't record anything) ─────
     level, kind = _classify(question)
     if level == "hard":
         if kind == "self_harm":
@@ -475,30 +466,55 @@ def answer_question(
         if kind == "death":
             return _DEATH_RESPONSE
 
-    # ── Chart facts go in the SYSTEM prompt so EVERY turn can see them ──────
+    # ── Load persistent memory (summary + recent turns) ─────────────────────
+    summary, qa_log = (None, [])
+    if db_chat_id is not None:
+        try:
+            from database import get_conversation
+            summary, qa_log = get_conversation(db_chat_id)
+        except Exception as e:
+            print(f"[memory] load failed: {e}")
+
+    # ── Chart facts (+ summary) go in the SYSTEM prompt ─────────────────────
     context = _build_chart_context(kundli)
     system  = (
         _system_prompt(name, gender, kind if level == "soft" else "")
         + "\n\n=== BIRTH CHART FACTS (use ONLY these; never recalculate) ===\n"
         + context
     )
+    if summary:
+        system += (
+            "\n\n=== CONVERSATION SO FAR (memory of earlier turns) ===\n"
+            + summary
+        )
 
-    # ── Build the conversation: prior turns + this new question ────────────
+    # ── Recent turns verbatim + the new question ────────────────────────────
+    recent_turns = _qa_log_to_turns(qa_log, _RECENT_QA_PAIRS)
     user_turn = {"role": "user", "parts": [{"text": question}]}
-    contents  = history + [user_turn]          # new list; doesn't mutate history yet
+    contents  = recent_turns + [user_turn]
 
-    # ── Call Gemini; commit to history only on success ─────────────────────
+    # ── Call Gemini; persist only on success ────────────────────────────────
     reply = _call_gemini(system, contents)
-    if reply:
-        history.append(user_turn)
-        history.append({"role": "model", "parts": [{"text": reply}]})
-        # Bound memory: keep the last 12 turns (6 Q&A pairs). Even count keeps
-        # the trimmed history starting with a 'user' turn, as Gemini requires.
-        if len(history) > 12:
-            del history[:-12]
-        return _sanitize_for_chat(reply)
+    if not reply:
+        return _template_fallback(question, kundli, name)
 
-    return _template_fallback(question, kundli, name)
+    clean = _sanitize_for_chat(reply)
+
+    if db_chat_id is not None:
+        try:
+            from database import append_qa, save_summary_and_trim
+            append_qa(db_chat_id, question, clean)
+            # Compact when the log grows past the threshold.
+            if len(qa_log) + 1 > _SUMMARIZE_AT:
+                full = qa_log + [{"q": question, "a": clean}]
+                older = full[:-_RECENT_QA_PAIRS]      # everything except the recent tail
+                new_summary = _summarize_conversation(summary, older, name)
+                if new_summary:
+                    save_summary_and_trim(db_chat_id, new_summary.strip(), _RECENT_QA_PAIRS)
+        except Exception as e:
+            print(f"[memory] persist failed: {e}")
+
+    return clean
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 5. OUTPUT SANITISER  (keep Telegram/WhatsApp legacy-Markdown safe)
@@ -576,6 +592,3 @@ def _template_fallback(question: str, kundli: dict, name: str) -> str:
         "a full personalised answer.\n\n"
         "_(AI reading temporarily unavailable.)_"
     )
-
-
-
