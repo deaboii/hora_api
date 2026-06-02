@@ -15,7 +15,14 @@ from services.whatsapp_service import (
     mark_read    as wa_mark_read,
 )
 from geo_lookup import city_to_latlon
+from database import init_db, upsert_user
 app = FastAPI()
+
+
+@app.on_event("startup")
+def _startup_init_db():
+    """Create the users table on boot (safe to run every start)."""
+    init_db()
 app.include_router(kundli_router)
 
 # ─────────────────────────────────────────────────────────────
@@ -304,6 +311,24 @@ def handle_user_message(
                     "name": d["name"],
                     "gender": d["gender"],
                 }
+
+                # Persist to the database so user data survives restarts.
+                # Telegram users key on the numeric chat_id; WhatsApp users
+                # have a phone-string id, so store that in phone_number and
+                # use a hash as the BIGINT chat_id key.
+                try:
+                    if session_key.startswith("tg:"):
+                        db_chat_id = int(user_id)
+                        db_data = dict(d)
+                    else:  # "wa:" — phone number id
+                        db_chat_id = abs(hash(str(user_id))) % (10 ** 15)
+                        db_data = dict(d)
+                        db_data["phone_number"] = str(user_id)
+                    upsert_user(db_chat_id, db_data, result)
+                except Exception as e:
+                    import traceback
+                    print(f"[db save error] {e}\n{traceback.format_exc()}")
+
                 messages = fmt_kundli(result, d["name"], d["gender"])
                 for msg in messages:
                     send(user_id, msg)
